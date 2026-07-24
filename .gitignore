@@ -1,0 +1,7 @@
+# Build output
+bin/
+obj/
+
+# Release artifacts (published as GitHub release assets, not tracked here)
+dist/
+*.zip
