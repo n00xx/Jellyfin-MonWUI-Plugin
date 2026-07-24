@@ -3,6 +3,8 @@
 Rama: `feat/library-hubs`
 Base: `main` @ `adf6a6e`
 
+> **Estado: implementado** en `v3.7.0.4`. Ver "Resultado" al final.
+
 ## Objetivo
 
 Añadir una sección nueva dentro de **Studio Collection Settings** que renderice, en la pantalla
@@ -122,3 +124,59 @@ Ficheros a tocar:
 ## Complejidad estimada
 
 **MEDIA** — 7 ficheros JS modificados + 2 nuevos + 9 de idioma. **Sin cambios en C#.**
+
+---
+
+## Resultado
+
+Implementado como sección gestionada `libraryHubs`, reutilizando la maquinaria de
+filas que ya existe en `recentRows.js` (`fillSectionWithItems` →
+`buildSectionSkeleton`), en vez de un renderizador nuevo. Eso da gratis el chevron
+"See All", las tarjetas hover, el hero card y el render perezoso.
+
+### Desviación respecto al plan
+
+El plan preveía `libraryHubs.js` como módulo de render independiente. Al analizar
+el código resultó que el constructor de filas (`fillSectionWithItems`) y toda la
+maquinaria de tarjetas son privados de `recentRows.js`; un módulo aparte habría
+supuesto duplicar ~1000 líneas. El render vive por tanto en `recentRows.js`,
+siguiendo el mismo patrón que la familia de secciones ya existente. Solo el
+descubrimiento de categorías se extrajo a `libraryHubsShared.js`, para que la
+página de ajustes no cargue los 177 KB de `recentRows.js`.
+
+### Ficheros
+
+Nuevo:
+- `Resources/slider/modules/libraryHubsShared.js` — descubrimiento + caché
+
+Modificados:
+- `Resources/slider/modules/recentRows.js` — sección, planes, fetcher, see-all
+- `Resources/slider/modules/config.js` — defaults, orden, mapa de habilitación
+- `Resources/slider/modules/settings/studioHubsPage.js` — panel de ajustes
+- `Resources/slider/modules/settings/applySettings.js` — persistencia
+- `Resources/slider/modules/homeSectionChain.js` — encadenado
+- `Resources/slider/modules/homeSectionNative.js` — mapeo id → clave
+- `Resources/slider/main.js` — gating de montaje y de CSS
+- `Resources/slider/language/*.js` (9) — etiquetas
+
+### Claves de configuración
+
+| Clave | Default |
+|---|---|
+| `enableLibraryHubs` | `false` |
+| `showLibraryHubsHeroCards` | `false` |
+| `libraryHubsCardCount` | `12` |
+| `libraryHubsHidden` | `[]` (ids de categorías desactivadas) |
+| `libraryHubsExcludedNames` | `["Downloads"]` |
+
+### Verificado
+
+- Sintaxis de los 17 ficheros JS (`node --check`, módulo ES)
+- `dotnet build -c Release` — 0 errores, 0 avisos
+- El DLL del zip embebe `libraryHubsShared.js` y las etiquetas nuevas
+- `checksum` del manifest == md5 del zip; versión coherente en csproj/meta/manifest
+
+### Pendiente de prueba funcional
+
+No hay un Jellyfin local en este entorno, así que el render en la pantalla de
+inicio y el guardado de los checkboxes están verificados solo estáticamente.
