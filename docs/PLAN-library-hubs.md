@@ -18,6 +18,16 @@ Cada fila:
 
 La carpeta **`Downloads` queda excluida**.
 
+## Decisiones confirmadas
+
+- **Estructura:** cada dataset de TrueNAS es una **biblioteca de Jellyfin** independiente.
+  Fuente: `GET /Users/{userId}/Views`. Href de "Ver todo":
+  `#/movies?topParentId={viewId}&collectionType=…` (patrón ya usado en `recentRows.js:4777`).
+- **Persistencia:** `localStorage`, siguiendo el patrón de `studioHubsHidden`.
+  **Sin cambios en C#.**
+- **Plantilla a replicar:** `genreHubs` — es la sección gestionada del home cuya superficie de
+  registro coincide exactamente con la que necesita esta feature.
+
 ## Hallazgos del análisis del repo
 
 | Área | Ubicación | Nota |
@@ -89,12 +99,26 @@ Orden correcto (el checksum depende del zip):
 | Riesgo | Sev. | Mitigación |
 |---|---|---|
 | Checkboxes que no persisten por no registrarlos en `applySettings.js` | ALTO | Verificado el path; se registra explícitamente |
-| Estructura real de los datasets en Jellyfin (bibliotecas vs subcarpetas) | ALTO | **Pendiente de confirmar con el usuario** — cambia el endpoint y el href de "Ver todo" |
 | N filas nuevas en el home degradan el rendimiento | MEDIO | Render perezoso vía `homeSectionChain` + `IntersectionObserver`, como el resto |
 | `checksum` de `manifest.json` calculado antes de generar el zip | MEDIO | Orden de pasos fijado en la Fase 6 |
+| Categorías dinámicas vs orden persistido: si se renombra un dataset, su toggle se pierde | MEDIO | Reconciliar por `viewId` (estable) y no por nombre |
 | Deriva de traducciones en 9 idiomas | BAJO | Fallback al literal en inglés |
+| Sin entorno Jellyfin local para probar en vivo | MEDIO | Verificación estática (sintaxis, build `dotnet`); prueba funcional la hace el usuario |
+
+## Superficie de registro (copiada de `genreHubs`)
+
+Ficheros a tocar:
+
+1. `Resources/slider/modules/libraryHubs.js` *(nuevo)* — render
+2. `Resources/slider/modules/libraryHubsShared.js` *(nuevo)* — descubrimiento + caché
+3. `Resources/slider/modules/config.js` — defaults, `DEFAULT_MANAGED_HOME_SECTION_ORDER`, `enabledMap`
+4. `Resources/slider/modules/settings/studioHubsPage.js` — UI del panel
+5. `Resources/slider/modules/settings/applySettings.js` — persistencia
+6. `Resources/slider/modules/homeSectionChain.js` — encadenado de secciones
+7. `Resources/slider/modules/homeSectionNative.js` — interacción con secciones nativas
+8. `Resources/slider/main.js` — import perezoso + mount/cleanup
+9. `Resources/slider/language/*.js` (9 ficheros) — etiquetas
 
 ## Complejidad estimada
 
-**MEDIA** — ~6 ficheros JS tocados, 1-2 ficheros nuevos, sin cambios en C#
-(salvo que se opte por persistencia servidor vía `StudioHubsController`).
+**MEDIA** — 7 ficheros JS modificados + 2 nuevos + 9 de idioma. **Sin cambios en C#.**
