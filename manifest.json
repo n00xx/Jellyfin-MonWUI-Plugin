@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.0.3",
+        "changelog": "v3.7.0.3 (custom fork)\n\nDisabled by default on fresh installs (each still enableable in Slider settings):\n- Show Settings Shortcut\n- Show YouTube Link Icon\n- Show Metadata Links\n- Show Audio and Subtitle Info\n- Show Status Info > Quality\n\nNotes:\n- Restart Jellyfin after install\n- Hard refresh (Ctrl + F5) may be required",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.0.3/JMSFusion-3.7.0.3-server.zip",
+        "checksum": "7b5a616b69fe8be57aa2b8b7c575ee57",
+        "timestamp": "2026-07-24T19:19:01.0000000Z"
+      },
+      {
         "version": "3.7.0.2",
         "changelog": "v3.7.0.2 (custom fork)\n\nDisabled by default on fresh installs (each still enableable in settings):\n- Studio Collections: Enable TMDb Upcoming Movie Cards, Enable Next Up Episode Cards, Enable Recently Added Episode Cards, Show hero card (Recently Added Episodes)\n- Slider / Director and Writer Settings: Show Director and Writer Info, Director, Writer\n\nNotes:\n- Restart Jellyfin after install\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
