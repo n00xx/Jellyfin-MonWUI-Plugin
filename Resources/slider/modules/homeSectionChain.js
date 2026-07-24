@@ -1287,6 +1287,9 @@ function resolveAnchorElementByKey(key) {
   if (key === "nextUpRows") {
     return getManagedSectionTail("nextup-rows--");
   }
+  if (key === "libraryHubs") {
+    return getManagedSectionTail("library-hubs--");
+  }
   if (key === "personalRecommendations") {
     return document.getElementById("personal-recommendations");
   }

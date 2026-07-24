@@ -329,7 +329,28 @@ const USER_ONLY_KEYS = [
             return [];
           }
         })();
+        // The Library Hubs sub-options are disabled by bindCheckboxKontrol while the
+        // master toggle is off, and FormData omits disabled controls. Reading straight
+        // from the DOM (and falling back to the stored config) keeps a saved-while-off
+        // form from wiping the user's configured values.
+        const libraryHubsCardCountValue = (() => {
+          const stored = parseInt(config?.libraryHubsCardCount, 10);
+          const fallback = Number.isFinite(stored) && stored > 0 ? stored : 12;
+          const control = form.querySelector('[name="libraryHubsCardCount"]');
+          const raw = control ? control.value : formData.get('libraryHubsCardCount');
+          const parsed = parseInt(raw, 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+        })();
         const libraryHubsHiddenValue = (() => {
+          const control = form.querySelector('[name="libraryHubsHidden"]');
+          if (control && control.value) {
+            try {
+              const arr = JSON.parse(control.value);
+              if (Array.isArray(arr)) {
+                return arr.map(x => String(x || '').trim()).filter(Boolean);
+              }
+            } catch {}
+          }
           const raw = formData.get('libraryHubsHidden');
           if (!raw) return Array.isArray(config?.libraryHubsHidden) ? config.libraryHubsHidden : [];
           try {
@@ -702,9 +723,12 @@ const USER_ONLY_KEYS = [
             })(),
 
             enableStudioHubs: formData.get('enableStudioHubs') === 'on',
-            enableLibraryHubs: formData.get('enableLibraryHubs') === 'on',
-            showLibraryHubsHeroCards: formData.get('showLibraryHubsHeroCards') === 'on',
-            libraryHubsCardCount: parseInt(formData.get('libraryHubsCardCount'), 10) || 12,
+            enableLibraryHubs: boolFromFd('enableLibraryHubs', config.enableLibraryHubs === true),
+            showLibraryHubsHeroCards: boolFromFd(
+              'showLibraryHubsHeroCards',
+              config.showLibraryHubsHeroCards === true
+            ),
+            libraryHubsCardCount: libraryHubsCardCountValue,
             libraryHubsHidden: libraryHubsHiddenValue,
             studioHubsColorize: formData.get('studioHubsColorize') === 'on',
             enablePersonalRecommendations: formData.get('enablePersonalRecommendations') === 'on',
