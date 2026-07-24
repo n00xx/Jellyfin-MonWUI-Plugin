@@ -945,7 +945,7 @@ export function getConfig() {
         .slice(0, 2);
       return value.length === 2 ? value : 'US';
     })(),
-    enabledGmmp: localStorage.getItem('enabledGmmp') !== 'false',
+    enabledGmmp: localStorage.getItem('enabledGmmp') === 'true',
     enableQualityBadges: localStorage.getItem('enableQualityBadges') !== 'false',
     enableTrailerThenVideo,
     disableAllPlayback,
@@ -986,13 +986,13 @@ export function getConfig() {
     enableCustomSplashScreen: (localStorage.getItem('enableCustomSplashScreen') || 'true') !== 'false',
     customSplashTitle: (localStorage.getItem('customSplashTitle') || '').trim(),
 
-    enableDirectorRows: localStorage.getItem('enableDirectorRows') !== 'false',
+    enableDirectorRows: localStorage.getItem('enableDirectorRows') === 'true',
     showDirectorRowsHeroCards: localStorage.getItem('showDirectorRowsHeroCards') !== 'false',
     directorRowsCount: parseInt(localStorage.getItem("directorRowsCount"), 10) || 4,
     directorRowsMinItemsPerDirector: parseInt(localStorage.getItem("directorRowsMinItemsPerDirector"), 10) || 8,
     directorRowCardCount: parseInt(localStorage.getItem("directorRowCardCount"), 10) || 10,
     placeDirectorRowsAtBottom: localStorage.getItem('placeDirectorRowsAtBottom') !== 'false',
-    directorRowsUseTopGenres: localStorage.getItem('directorRowsUseTopGenres') !== 'false',
+    directorRowsUseTopGenres: localStorage.getItem('directorRowsUseTopGenres') === 'true',
 
     enableCollectionIndexerAutoStart: localStorage.getItem('enableCollectionIndexerAutoStart') !== 'false',
     collectionIndexerAutoStartDelayMs: parseInt(localStorage.getItem('collectionIndexerAutoStartDelayMs'), 10) || 75_000,
@@ -1088,7 +1088,7 @@ export function getConfig() {
     becauseYouWatchedRowCount: parseInt(localStorage.getItem('becauseYouWatchedRowCount'), 10) || 10,
     becauseYouWatchedCardCount: parseInt(localStorage.getItem('becauseYouWatchedCardCount'), 10) || 10,
 
-    enableProfileChooser: localStorage.getItem('enableProfileChooser') !== 'false',
+    enableProfileChooser: localStorage.getItem('enableProfileChooser') === 'true',
     profileChooserAutoOpen: localStorage.getItem('profileChooserAutoOpen') !== 'false',
     profileChooserAutoOpenRequireQuickLogin: localStorage.getItem('profileChooserAutoOpenRequireQuickLogin') !== 'false',
     profileChooserRememberTokens: localStorage.getItem('profileChooserRememberTokens') !== 'false',

@@ -6,9 +6,17 @@
     "overview": "Custom script loader for the Jellyfin web UI.",
     "owner": "G-Grbz",
     "category": "General",
-    "imageUrl": "https://raw.githubusercontent.com/G-grbz/Jellyfin-MonWUI-Plugin/main/img/icon.png",
+    "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
-    {
+      {
+        "version": "3.7.0.1",
+        "changelog": "v3.7.0.1 (custom fork)\n\nChanges:\n- Disabled by default on fresh installs: Enable GMMP, Enable profile chooser (Who's Watching?), Enable Director Collections, and Prioritize directors of most-watched content.\n- Each option can still be turned on from MonWUI Settings.\n\nNotes:\n- Restart Jellyfin after install\n- Hard refresh (Ctrl + F5) may be required",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.0.1/JMSFusion-3.7.0.1-server.zip",
+        "checksum": "9d10f026d86390801d26428c5b076a70",
+        "timestamp": "2026-07-24T16:16:01.0000000Z"
+      },
+      {
         "version": "3.7.0.0",
         "changelog": "v3.7.0\n\nChanges:\n- Fixed plugin settings being reset when saving partial configuration updates\n- Added configuration merge handling to preserve existing values during updates\n- Preserved custom MonWUI settings, integration settings, internal state, and stored JSON snapshots\n\nNotes:\n- Existing custom settings are now retained when updating plugin configuration\n- Restart Jellyfin after update if settings appear cached",
         "targetAbi": "10.11.0.0",
@@ -16,7 +24,7 @@
         "checksum": "2ae29212c41ff0cc671f8f9c0d7835f4",
         "timestamp": "2026-06-10T22:57:12.7702989Z"
       },
-    {
+      {
         "version": "3.6.0.0",
         "changelog": "v3.6.0\n\nChanges:\n- Added pagination, enhanced card layouts, rating/provider links, and backdrop hydration to the Seerr request panel\n- Optimized slider cache storage with compression and automatic cleanup of stale entries\n- Added request deduplication and short-lived caching for API GET and item detail requests\n- Improved backdrop, studio hub, and hover image loading with optimized WebP handling and width limits\n- Reduced startup overhead through user settings snapshot sharing and lazy-loaded language resources\n- Limited shuffle ranges to 50-500 and optimized large query pool handling\n\nPerformance:\n- Reduced redundant network requests across media and Seerr views\n- Improved client and server cache efficiency\n- Lowered initial load times and memory usage\n\nNotes:\n- Restart Jellyfin after update\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
@@ -24,7 +32,7 @@
         "checksum": "88428eb14b5c59faea29a374e84ce4c9",
         "timestamp": "2026-06-03T12:24:35.7568800Z"
       },
-    {
+      {
         "version": "3.5.0.0",
         "changelog": "v3.5.0\n\nChanges:\n- Added search, request matching, and 4K upgrade actions to the Seerr request panel\n- Updated request approval, decline, and retract workflows to stay synchronized with Seerr and Arr states\n- Improved Arr cleanup handling for movies, seasons, and episodes\n- Fixed stability issues affecting hover trailers, notification startup, and quality badges\n- Fixed an issue in the Who's Watching? module (closes #59)\n- Updated manifest changelog and metadata timestamps\n\nNotes:\n- Restart Jellyfin after update\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
@@ -32,7 +40,7 @@
         "checksum": "a40a5841ab5a85c01b650ee0036e38f1",
         "timestamp": "2026-06-01T18:22:14.7748302Z"
       },
-    {
+      {
         "version": "3.4.0.0",
         "changelog": "v3.4.0\n\nChanges:\n- Enabled 4K request support for Seerr & Arr integration\n- Updated detail modal trailer previews to respect trailer volume settings configured in the MonWUI panel\n- Fixed multiple issues and inconsistencies in the HoverTrailer modal\n- Improved trailer modal stability and playback behavior\n- Applied various UI, compatibility, and performance refinements across the plugin\n\nNotes:\n- Restart Jellyfin after update\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
@@ -40,7 +48,7 @@
         "checksum": "aec7f39a66bdbe156b226cb07d331482",
         "timestamp": "2026-05-28T11:12:08.0272532Z"
       },
-    {
+      {
         "version": "3.3.0.0",
         "changelog": "v3.3.0\n\nChanges:\n- Added auto-play for active slider trailers with pause/resume controls and playback interruption on manual start (#58)\n- Added trailer audio controls: mute on start, initial volume limit, and percentage-based volume settings (#58)\n- Unified audio behavior across slider, hover, studio popover, YouTube iframe, and local video trailers (#58)\n- Implemented full Live TV and TV Guide bypass for MonWUI features (hover trailers, pause overlay, parental PIN, cinema pre-roll, GMMP/player, studio popover, watchlist) (#57)\n- Delegated Live TV playback entirely to Jellyfin native player (#57)\n- Added Italian, Japanese, and Portuguese language support with detection and selection integration\n- Translation files were sourced from MonWUI forks — thanks to the contributors\n- Added new translation keys for auto slider trailers and trailer audio settings\n- Improved watchlist behavior: favorites mirroring, Live TV exclusion, and auto-removal of watched series/seasons\n- Improved API handling: AbortSignal support, hover-cancel logic, and playback-start event\n- Added fallback layer for Jellyfin scroll event listener compatibility\n\nNotes:\n- Restart Jellyfin after update\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
@@ -48,7 +56,7 @@
         "checksum": "6c2a65f985fa28f0d6089ac365f3e4e5",
         "timestamp": "2026-05-25T20:26:28.2939629Z"
       },
-    {
+      {
         "version": "3.2.0.0",
         "changelog": "v3.2.0\n\nChanges:\n- Added Arr calendar integration: backend endpoint and notification panel calendar view\n- Expanded Seerr requests: boxset/collection search, missing item selection, and bulk request flow\n- Added fallback country selection for missing trailers in Cinema Pre-Roll settings\n- Improved user settings synchronization: filtered sensitive snapshot keys and reduced redundant writes via idempotent storage and deduplication (#56)\n\nNotes:\n- Restart Jellyfin after update\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
@@ -56,7 +64,7 @@
         "checksum": "4bca9dc3670bc092d8f43aad82d3cc77",
         "timestamp": "2026-05-23T13:52:31.6001411Z"
       },
-    {
+      {
         "version": "3.1.0.0",
         "changelog": "v3.1.0\n\nChanges:\n- Added Seerr & Arr integration: settings, connection testing, search, metadata proxy, request creation, listing, approval, rejection, and withdrawal flows\n- Introduced Sonarr & Radarr fallback support: single episode requests routed to Sonarr, missing movie requests to Radarr with configurable quality profile, root folder, and search options\n- Added request flows in Jellyfin UI for missing seasons, episodes, and collection movies with status tracking in notification panel and management screen\n- Upgraded Cinema Pre-Roll to cache v5: excludes existing library items, filters by trailer recency, stores certification data, and applies Jellyfin native age rating filtering\n- Added request button (Seerr/Radarr) to Cinema Pre-Roll screen; improved fetch timeouts, session locking, and replay prevention\n- Enhanced parental PIN handling: supports multiple Jellyfin API models, user detection via header/query/claims, admin checks, logging, and native playback hook\n- Expanded music playback integration: Jellyfin native play actions can be routed to GMMP with support for tracks, albums, artists, playlists, and folders\n- Improved watchlist sharing: toggleable from settings, enriched snapshot data, and support for sharing items not in user's own list\n- Refined watchlist preview and auto-removal: missing items shown via Seerr cards, corrected completion logic, and auto-removal only for items completed after being added/shared\n- Added optional profile hiding in \"Who’s Watching\" module for non-admin users\n- Extended settings panel: Seerr & Arr tab, module toggles, watchlist sharing option, and profile privacy controls\n- Enhanced Runtime API: expanded Jellyfin field coverage, added dedupe for \"Play Now\" triggers, and improved PIN/pre-roll playback chain handling\n- Improved location and slider settings panels with better unit handling and field visibility\n\nNotes:\n- Seerr and Arr services must be configured for request features\n- Restart Jellyfin after update\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
@@ -64,7 +72,7 @@
         "checksum": "2d7d4b313cc1c8a3fb1397a478b87ace",
         "timestamp": "2026-05-21T08:16:22.8132901Z"
       },
-    {
+      {
         "version": "3.0.0.0",
         "changelog": "v3.0.0\n\nChanges:\n- Added Cinema Pre-Roll system with TMDb-based trailer playback\n- Introduced server-side scoped JSON cache (replacing IndexedDB)\n- Integrated trailer cards and enhanced detail modal for virtual items\n- Improved slider behavior, UserData sync, and playback-aware updates\n- Expanded cache coverage (home, recommendations, GMMP, slider data)\n- Implemented automatic cache migration and new cache management tools\n- Optimized recommendation logic and runtime cache handling\n- Fixed \"Who’s Watching\" layout issue (issues #53)\n- Updated smart auto-pause behavior (0 disables condition) (issues #52)\n\nNotes:\n- TMDb API key required for Cinema Pre-Roll\n- Restart Jellyfin after update\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
@@ -72,7 +80,7 @@
         "checksum": "2e018286fb4735a3dabc8a50612c22c1",
         "timestamp": "2026-05-13T10:19:27.2592618Z"
       },
-    {
+      {
         "version": "2.9.1.0",
         "changelog": "v2.9.1\n\nChanges:\n- Improved home slider initialization stability\n- Prevented duplicate slider initialization while pending\n- Delayed restore and repair operations until slide creation is fully completed\n- Improved header offset synchronization across resize, navigation, visibility changes, and DOM mutations\n- Reused slide metadata color seeds for active navigation dot styling consistency\n- Applied minor slider and navigation refinements\n\nNotes:\n- Restart Jellyfin after update\n- A hard refresh (Ctrl + F5) may be required after updating",
         "targetAbi": "10.11.0.0",
@@ -80,7 +88,7 @@
         "checksum": "2a1a9904b333ea975b0144f371b6e385",
         "timestamp": "2026-05-08T08:11:50.0037528Z"
       },
-    {
+      {
         "version": "2.9.0.0",
         "changelog": "v2.9.0\n\nChanges:\n- Improved Normal and Compact view styles\n- Added details module support for Jellyfin original content cards on mobile devices\n- Added smart list creation support to the watchlist module\n- Removed fullscreen view style\n- Replaced SVG quality badges with text-based labels\n- Applied minor improvements across several modules\n\nNotes:\n- Restart Jellyfin after update\n- A hard refresh (Ctrl + F5) may be required after updating",
         "targetAbi": "10.11.0.0",
@@ -88,7 +96,7 @@
         "checksum": "416d29ec213effe6fedd2e8282528218",
         "timestamp": "2026-05-08T08:11:50.0037528Z"
       },
-    {
+      {
         "version": "2.8.0.0",
         "changelog": "v2.8.0\n\nChanges:\n- Optimized home page rendering by decoupling heavy item metadata from user-specific data and extending static cache revalidation\n- Improved performance and consistency across different data loading scenarios\n\n- Enhanced slider, studio collections, and managed monwui UI cards to align with native app layout and ordering behavior\n\n- Added optional colorization for studio collection background elements\n- Added optional colorization for slider metadata icons\n\n- Implemented dynamic offset calculation for slider and home sections based on header height\n\n- Introduced mini statistics panel for watchlist items\n\n- Updated runtime, configuration, and watchlist integration pathways for improved consistency and maintainability\n\n- Removed forced CSS overrides for Jellyfin home layout when slider is disabled, allowing native layout behavior\n\nNotes:\n- Restart Jellyfin after update\n- A hard refresh (Ctrl + F5) may be required after updating",
         "targetAbi": "10.11.0.0",
