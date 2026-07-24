@@ -13,7 +13,7 @@
         "changelog": "v3.7.0.4 (custom fork)\n\nNew: Library Collections\n- Adds one home row per Jellyfin library (Anime, Documentales, Donghuas,\n  Doramas, Peliculas, Series, Shows, ...), each showing its content plus a\n  See All link.\n- Categories are detected automatically from your libraries, so renaming or\n  adding one keeps working. Utility folders (Downloads) are excluded.\n- Each category has its own enable/disable checkbox under\n  Studio Collection Settings > Library Collections.\n- Card count per category is configurable (default 12).\n- Disabled by default on fresh installs.\n\nFixes:\n- update_meta.sh now emits a valid ISO timestamp on macOS/BSD\n  (%7N is a GNU date extension and was written out literally).\n\nNotes:\n- Restart Jellyfin after install\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.0.4/JMSFusion-3.7.0.4-server.zip",
-        "checksum": "d34ed7123ab4893422f74c49e2bf1bda",
+        "checksum": "0978749b706e291a97cb1987ff87825c",
         "timestamp": "2026-07-24T21:54:02.0000000Z"
       },
       {
