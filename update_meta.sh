@@ -7,7 +7,9 @@ if [ ! -f "$FILE" ]; then
   exit 1
 fi
 
-TS=$(date -u +"%Y-%m-%dT%H:%M:%S.%7NZ")
+# %7N is a GNU date extension; BSD/macOS date emits a literal "7N" instead.
+# Build the 7-digit fractional part explicitly so the timestamp is valid on both.
+TS="$(date -u +"%Y-%m-%dT%H:%M:%S").0000000Z"
 NEWVER="${1:-}"
 CLEAN="$(mktemp)"
 grep -vE '^\s*//' "$FILE" > "$CLEAN"
