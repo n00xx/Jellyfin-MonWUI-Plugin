@@ -25,6 +25,7 @@ const MANAGED_HOME_SECTION_PREFIXES = Object.freeze([
   ["recent-rows--", "recentRows"],
   ["continue-rows--", "continueRows"],
   ["nextup-rows--", "nextUpRows"],
+  ["library-hubs--", "libraryHubs"],
   ["top10-series-rows--", "top10SeriesRows"],
   ["top10-movie-rows--", "top10MovieRows"],
   ["tmdb-top-movie-rows--", "tmdbTopMoviesRows"],
@@ -84,6 +85,7 @@ function getManagedHomeSectionKey(el) {
   if (id === "recent-rows") return "recentRows";
   if (id === "continue-rows") return "continueRows";
   if (id === "nextup-rows") return "nextUpRows";
+  if (id === "library-hubs") return "libraryHubs";
   if (id === "genre-hubs") return "genreHubs";
   if (id === "director-rows") return "directorRows";
   if (id === "because-you-watched" || id.startsWith("because-you-watched--")) {

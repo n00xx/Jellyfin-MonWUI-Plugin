@@ -10,7 +10,12 @@ import {
   getCurrentNativeHomeSectionOrderItems,
   getNativeHomeSectionOrderLabel
 } from "../homeSectionNative.js";
-import { createCheckbox, createSection, createNumberInput } from "./shared.js";
+import { createCheckbox, createSection, createNumberInput, bindCheckboxKontrol } from "./shared.js";
+import {
+  LIBRARY_HUBS_DEFAULT_CARD_COUNT,
+  fetchLibraryHubCategories,
+  getLibraryHubsHiddenIds
+} from "../libraryHubsShared.js";
 import { applySettings } from "./applySettings.js";
 import { fetchItemDetails, makeApiRequest } from "../../../Plugins/JMSFusion/runtime/api.js";
 import {
@@ -308,6 +313,13 @@ function getManagedHomeSectionOrderLabel(name, config, labels) {
       labels?.studioHubs ||
       config?.languageLabels?.studioHubs ||
       "Stüdyo Koleksiyonları"
+    );
+  }
+  if (name === "libraryHubs") {
+    return (
+      labels?.libraryHubs ||
+      config?.languageLabels?.libraryHubs ||
+      "Library Collections"
     );
   }
   if (name === "personalRecommendations") {
@@ -1022,6 +1034,143 @@ function createDnDItem(name, labels, options = {}) {
     manualEntries: options.manualEntries
   });
   return li;
+}
+
+/**
+ * Library Hubs: one home row per Jellyfin library (the user's TrueNAS datasets),
+ * each showing N items plus a "see all" link.
+ *
+ * Categories are discovered at runtime, so the per-category toggles cannot be
+ * static form fields. They are rendered manually with the same markup
+ * createCheckbox() produces, and their combined state is serialised into a single
+ * hidden `libraryHubsHidden` input that applySettings persists.
+ */
+function createLibraryHubsSection(config, labels) {
+  const section = createSection(
+    labels?.libraryHubsSettings ||
+    config.languageLabels?.libraryHubsSettings ||
+    'Library Collections'
+  );
+
+  const enableCheckbox = createCheckbox(
+    'enableLibraryHubs',
+    labels?.enableLibraryHubs ||
+      config.languageLabels?.enableLibraryHubs ||
+      'Enable Library Collections',
+    config.enableLibraryHubs === true
+  );
+  section.appendChild(enableCheckbox);
+
+  const subWrap = document.createElement('div');
+  subWrap.id = 'library-hubs-suboptions';
+
+  subWrap.appendChild(createCheckbox(
+    'showLibraryHubsHeroCards',
+    labels?.showLibraryHubsHeroCards ||
+      config.languageLabels?.showLibraryHubsHeroCards ||
+      'Show hero card (Library Collections)',
+    config.showLibraryHubsHeroCards === true
+  ));
+
+  subWrap.appendChild(createNumberInput(
+    'libraryHubsCardCount',
+    labels?.libraryHubsCardCount ||
+      config.languageLabels?.libraryHubsCardCount ||
+      'Cards to show per category',
+    Number.isFinite(config.libraryHubsCardCount)
+      ? config.libraryHubsCardCount
+      : LIBRARY_HUBS_DEFAULT_CARD_COUNT,
+    1,
+    100
+  ));
+
+  const hiddenIds = new Set(getLibraryHubsHiddenIds());
+  const hiddenInput = createHiddenInput('libraryHubsHidden', JSON.stringify([...hiddenIds]));
+  subWrap.appendChild(hiddenInput);
+
+  const listWrap = document.createElement('div');
+  listWrap.className = 'library-hubs-category-list';
+
+  const listTitle = document.createElement('div');
+  listTitle.className = 'description-text2';
+  listTitle.style.margin = '10px 0 6px';
+  listTitle.textContent =
+    labels?.libraryHubsCategories ||
+    config.languageLabels?.libraryHubsCategories ||
+    'Categories to show';
+  listWrap.appendChild(listTitle);
+
+  const status = document.createElement('div');
+  status.className = 'description-text2';
+  status.textContent =
+    labels?.libraryHubsLoading ||
+    config.languageLabels?.libraryHubsLoading ||
+    'Loading categories…';
+  listWrap.appendChild(status);
+
+  subWrap.appendChild(listWrap);
+  section.appendChild(subWrap);
+
+  const syncHiddenInput = () => {
+    hiddenInput.value = JSON.stringify([...hiddenIds]);
+  };
+
+  fetchLibraryHubCategories({ force: true })
+    .then((categories) => {
+      status.remove();
+
+      if (!categories.length) {
+        const empty = document.createElement('div');
+        empty.className = 'description-text2';
+        empty.textContent =
+          labels?.libraryHubsNoCategories ||
+          config.languageLabels?.libraryHubsNoCategories ||
+          'No libraries found.';
+        listWrap.appendChild(empty);
+        return;
+      }
+
+      // Drop toggles for libraries that no longer exist so removed datasets do
+      // not linger in the persisted hidden list.
+      const liveIds = new Set(categories.map((c) => c.Id));
+      [...hiddenIds].forEach((id) => { if (!liveIds.has(id)) hiddenIds.delete(id); });
+      syncHiddenInput();
+
+      categories.forEach((category) => {
+        const container = document.createElement('div');
+        container.className = 'setting-item';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `libraryHub_${category.Id}`;
+        checkbox.checked = !hiddenIds.has(category.Id);
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) hiddenIds.delete(category.Id);
+          else hiddenIds.add(category.Id);
+          syncHiddenInput();
+        });
+
+        const label = document.createElement('label');
+        label.htmlFor = checkbox.id;
+        label.textContent = category.Name;
+
+        container.append(checkbox, label);
+        listWrap.appendChild(container);
+      });
+
+      bindCheckboxKontrol('#enableLibraryHubs', '#library-hubs-suboptions');
+    })
+    .catch((err) => {
+      console.warn('libraryHubs: settings category load failed:', err);
+      status.textContent =
+        labels?.libraryHubsLoadError ||
+        config.languageLabels?.libraryHubsLoadError ||
+        'Could not load categories.';
+    });
+
+  bindCheckboxKontrol('#enableLibraryHubs', '#library-hubs-suboptions');
+
+  return section;
 }
 
 export function createStudioHubsPanel(config, labels) {
@@ -2991,6 +3140,7 @@ export function createStudioHubsPanel(config, labels) {
   });
 
   panel.appendChild(section);
+  panel.appendChild(createLibraryHubsSection(config, labels));
   panel.appendChild(becauseYouWatchedSection);
   panel.appendChild(genreSection);
   panel.appendChild(dirSection);

@@ -374,6 +374,7 @@ function getSectionState(source = null) {
     recentRows: runtime.enableRecentRowsSection === true,
     continueRows: runtime.enableContinueRowsSection === true,
     nextUpRows: runtime.enableNextUpRowsSection === true,
+    libraryHubs: runtime.enableLibraryHubs === true,
     personalRecommendations: runtime.enablePersonalRecommendations !== false,
     becauseYouWatched: runtime.enableBecauseYouWatched !== false,
     genreHubs: runtime.enableGenreHubs !== false,
@@ -429,6 +430,7 @@ function hasSectionReady(key) {
     if (key === "recentRows") return window.__jmsRecentRowsDone === true;
     if (key === "continueRows") return window.__jmsContinueRowsDone === true;
     if (key === "nextUpRows") return window.__jmsNextUpRowsDone === true;
+    if (key === "libraryHubs") return window.__jmsLibraryHubsDone === true;
     if (key === "personalRecommendations") return window.__jmsPersonalRecsDone === true;
     if (key === "becauseYouWatched") return window.__jmsBywDone === true;
     if (key === "genreHubs") {
@@ -448,6 +450,7 @@ function getSectionReadyEvents(key) {
   if (key === "recentRows") return ["jms:recent-rows-done"];
   if (key === "continueRows") return ["jms:continue-rows-done"];
   if (key === "nextUpRows") return ["jms:nextup-rows-done"];
+  if (key === "libraryHubs") return ["jms:library-hubs-done"];
   if (key === "personalRecommendations") return ["jms:personal-recommendations-done"];
   if (key === "becauseYouWatched") return ["jms:because-you-watched-done"];
   if (key === "genreHubs") return ["jms:genre-first-ready", "jms:genre-hubs-done"];
@@ -541,6 +544,13 @@ function hasSectionRenderableContent(key) {
     );
   }
 
+  if (key === "libraryHubs") {
+    return hasRenderableManagedSections(
+      "library-hubs--",
+      ".recent-row-section .personal-recs-card:not(.skeleton), .recent-row-section .no-recommendations, .recent-row-section .dir-row-hero"
+    );
+  }
+
   if (key === "personalRecommendations") {
     return hasRenderableCards(
       document.getElementById("personal-recommendations"),
@@ -580,6 +590,7 @@ const COMPLETION_GATED_SECTION_KEYS = new Set([
   "recentRows",
   "continueRows",
   "nextUpRows",
+  "libraryHubs",
   "becauseYouWatched",
   "genreHubs",
   "directorRows",
@@ -602,6 +613,7 @@ function hasSectionCompleted(key) {
     if (key === "recentRows") return window.__jmsRecentRowsDone === true;
     if (key === "continueRows") return window.__jmsContinueRowsDone === true;
     if (key === "nextUpRows") return window.__jmsNextUpRowsDone === true;
+    if (key === "libraryHubs") return window.__jmsLibraryHubsDone === true;
     if (key === "personalRecommendations") return window.__jmsPersonalRecsDone === true;
     if (key === "becauseYouWatched") return window.__jmsBywDone === true;
     if (key === "genreHubs") return window.__jmsGenreHubsDone === true;
@@ -619,6 +631,7 @@ function getSectionCompletionEvents(key) {
   if (key === "recentRows") return ["jms:recent-rows-done"];
   if (key === "continueRows") return ["jms:continue-rows-done"];
   if (key === "nextUpRows") return ["jms:nextup-rows-done"];
+  if (key === "libraryHubs") return ["jms:library-hubs-done"];
   if (key === "personalRecommendations") return ["jms:personal-recommendations-done"];
   if (key === "becauseYouWatched") return ["jms:because-you-watched-done"];
   if (key === "genreHubs") return ["jms:genre-hubs-done"];

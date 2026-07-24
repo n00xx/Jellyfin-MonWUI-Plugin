@@ -329,6 +329,18 @@ const USER_ONLY_KEYS = [
             return [];
           }
         })();
+        const libraryHubsHiddenValue = (() => {
+          const raw = formData.get('libraryHubsHidden');
+          if (!raw) return Array.isArray(config?.libraryHubsHidden) ? config.libraryHubsHidden : [];
+          try {
+            const arr = JSON.parse(raw);
+            return Array.isArray(arr)
+              ? arr.map(x => String(x || '').trim()).filter(Boolean)
+              : [];
+          } catch {
+            return [];
+          }
+        })();
         const managedHomeSectionOrderValue = (() => {
           const raw = formData.get('managedHomeSectionOrder');
           if (!raw) return normalizeManagedHomeSectionOrder(config?.managedHomeSectionOrder);
@@ -690,6 +702,10 @@ const USER_ONLY_KEYS = [
             })(),
 
             enableStudioHubs: formData.get('enableStudioHubs') === 'on',
+            enableLibraryHubs: formData.get('enableLibraryHubs') === 'on',
+            showLibraryHubsHeroCards: formData.get('showLibraryHubsHeroCards') === 'on',
+            libraryHubsCardCount: parseInt(formData.get('libraryHubsCardCount'), 10) || 12,
+            libraryHubsHidden: libraryHubsHiddenValue,
             studioHubsColorize: formData.get('studioHubsColorize') === 'on',
             enablePersonalRecommendations: formData.get('enablePersonalRecommendations') === 'on',
             showPersonalRecsHeroCards: formData.get('showPersonalRecsHeroCards') === 'on',

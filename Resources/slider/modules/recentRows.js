@@ -70,6 +70,8 @@ const ENABLE_RECENT_TRACKS   = ENABLE_RECENT_MASTER && (config.enableRecentMusic
 const DEFAULT_RECENT_ROWS_COUNT = 15;
 const TOP10_ROW_CARD_COUNT = 10;
 const ENABLE_OTHER_LIB_ROWS = !!config.enableOtherLibRows;
+const DEFAULT_LIBRARY_HUBS_COUNT = 12;
+const LIBRARY_HUBS_DEFAULT_EXCLUDED_NAMES = Object.freeze(["downloads"]);
 const OTHER_RECENT_CARD_COUNT   = UNIFIED_ROW_ITEM_LIMIT;
 const OTHER_CONTINUE_CARD_COUNT = UNIFIED_ROW_ITEM_LIMIT;
 const OTHER_EP_CARD_COUNT       = UNIFIED_ROW_ITEM_LIMIT;
@@ -160,6 +162,11 @@ function getRecentRowsRuntimeConfig(source = getLiveConfig()) {
     effectiveOtherRecentCount: getEffectiveRowCount(clampPositiveCount(cfg.otherLibrariesRecentCardCount, 10)),
     effectiveOtherContinueCount: getEffectiveRowCount(clampPositiveCount(cfg.otherLibrariesContinueCardCount, 10)),
     effectiveOtherEpisodesCount: getEffectiveRowCount(clampPositiveCount(cfg.otherLibrariesEpisodesCardCount, 10)),
+    enableLibraryHubs: homeSectionsConfig.enableLibraryHubs,
+    showLibraryHubsHeroCards: cfg.showLibraryHubsHeroCards === true,
+    effectiveLibraryHubsCount: getEffectiveRowCount(
+      clampPositiveCount(cfg.libraryHubsCardCount, DEFAULT_LIBRARY_HUBS_COUNT)
+    ),
   };
 }
 
@@ -232,6 +239,7 @@ const STATE = {
     movieLibs: [],
     tvLibs: [],
     otherLibs: [],
+    allLibs: [],
     db: null,
     scope: null,
     hadMountedSections: false,
@@ -280,6 +288,11 @@ const RECENT_ROW_SECTION_META = Object.freeze({
     id: "nextup-rows",
     flag: "__jmsNextUpRowsDone",
     event: "jms:nextup-rows-done"
+  },
+  libraryHubs: {
+    id: "library-hubs",
+    flag: "__jmsLibraryHubsDone",
+    event: "jms:library-hubs-done"
   }
 });
 
@@ -467,6 +480,7 @@ function getOrderedRecentRowSectionKeys(cfg, runtimeCfg) {
   if (hasRecentRowsSectionEnabled(runtimeCfg)) enabled.add("recentRows");
   if (hasContinueRowsSectionEnabled(runtimeCfg)) enabled.add("continueRows");
   if (hasNextUpRowsSectionEnabled(runtimeCfg)) enabled.add("nextUpRows");
+  if (runtimeCfg.enableLibraryHubs === true) enabled.add("libraryHubs");
   if (!enabled.size) return [];
 
   const ordered = getManagedHomeSectionRuntimeOrder(cfg, { enabledOnly: true })
@@ -1543,6 +1557,14 @@ async function resolveDefaultPages(userId) {
       });
     STATE.otherLibs = other;
 
+    STATE.allLibs = items
+      .filter(x => x?.Id)
+      .map(x => ({
+        Id: x.Id,
+        Name: x.Name || "",
+        CollectionType: (x.CollectionType || "").toString()
+      }));
+
     const tvLib = tvLibs[0] || null;
     const movLib = movieLibs[0] || null;
     const musicLib = items.find(x => (x?.CollectionType === "music")) || null;
@@ -1632,6 +1654,64 @@ function resolveOtherLibSelection() {
   const sel = getSelectedOtherLibIds();
   const filtered = sel.filter(id => all.includes(id));
   return filtered.length ? filtered : all;
+}
+
+function getLibraryHubsExcludedNames() {
+  const fromLs = readJsonArrayLs("libraryHubsExcludedNames");
+  const cfg = getConfig?.() || {};
+  const raw = (fromLs && fromLs.length)
+    ? fromLs
+    : (Array.isArray(cfg.libraryHubsExcludedNames) ? cfg.libraryHubsExcludedNames : null);
+  const list = (raw && raw.length) ? raw : LIBRARY_HUBS_DEFAULT_EXCLUDED_NAMES;
+  return new Set(list.map(x => String(x || "").trim().toLowerCase()).filter(Boolean));
+}
+
+function getLibraryHubsHiddenIds() {
+  const fromLs = readJsonArrayLs("libraryHubsHidden");
+  if (fromLs) return new Set(fromLs);
+  const cfg = getConfig?.() || {};
+  const fromCfg = Array.isArray(cfg.libraryHubsHidden) ? cfg.libraryHubsHidden : [];
+  return new Set(fromCfg.map(x => String(x || "").trim()).filter(Boolean));
+}
+
+/**
+ * Categories are enumerated at runtime from the user's Jellyfin libraries so the
+ * feature survives datasets being renamed or added. Name-based exclusion drops
+ * utility folders (Downloads); id-based hiding is the per-category toggle.
+ */
+function resolveLibraryHubsSelection() {
+  const excluded = getLibraryHubsExcludedNames();
+  const hidden = getLibraryHubsHiddenIds();
+  return (STATE.allLibs || []).filter(lib =>
+    lib?.Id &&
+    !excluded.has(String(lib.Name || "").trim().toLowerCase()) &&
+    !hidden.has(String(lib.Id))
+  );
+}
+
+function buildLibraryHubSeeAllHash(lib) {
+  const id = encodeURIComponent(lib?.Id || "");
+  switch (String(lib?.CollectionType || "").toLowerCase()) {
+    case "movies":
+      return `#/movies?topParentId=${id}&collectionType=movies`;
+    case "tvshows":
+      return `#/tv?topParentId=${id}&collectionType=tvshows`;
+    case "music":
+      return `#/music?topParentId=${id}&collectionType=music`;
+    default:
+      return `#/list.html?parentId=${id}`;
+  }
+}
+
+function getLibraryHubItemTypes(collectionType) {
+  switch (String(collectionType || "").toLowerCase()) {
+    case "movies":     return "Movie";
+    case "tvshows":    return "Series";
+    case "music":      return "MusicAlbum";
+    case "boxsets":    return "BoxSet";
+    case "homevideos": return "Video,Movie";
+    default:           return "Movie,Series";
+  }
 }
 
 function normalizeIdList(ids) {
@@ -3636,6 +3716,34 @@ async function fetchRecentGeneric(userId, limit, parentId) {
   }
 }
 
+async function fetchLibraryHubItems(userId, limit, lib) {
+  const parentId = lib?.Id;
+  if (!parentId) return [];
+  const url =
+    `/Users/${userId}/Items?` +
+    `Recursive=true&Fields=${encodeURIComponent(COMMON_FIELDS)}&` +
+    `EnableUserData=true&` +
+    `ParentId=${encodeURIComponent(parentId)}&` +
+    `IncludeItemTypes=${encodeURIComponent(getLibraryHubItemTypes(lib?.CollectionType))}&` +
+    `SortBy=SortName&SortOrder=Ascending&Limit=${Math.max(1, limit | 0)}&` +
+    `ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Logo`;
+  try {
+    const data = await makeApiRequest(url);
+    const items = Array.isArray(data?.Items) ? data.Items : [];
+    const out = uniqById(items).slice(0, limit);
+    await attachSeriesPosterSourceToEpsAndSeasons(out);
+    try {
+      if (STATE.db && STATE.scope) {
+        await upsertItemsBatch(STATE.db, STATE.scope, out);
+      }
+    } catch {}
+    return out;
+  } catch (e) {
+    console.warn("recentRows: library hub fetch error:", e);
+    return [];
+  }
+}
+
 async function fetchContinueGeneric(userId, limit, parentId) {
   const url =
     `/Users/${userId}/Items?` +
@@ -4507,6 +4615,7 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
       STATE.movieLibs = [];
       STATE.tvLibs = [];
       STATE.otherLibs = [];
+      STATE.allLibs = [];
     }
   }
   try {
@@ -4546,6 +4655,7 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
     const continuePlans    = [];
     const nextUpPlans      = [];
     const episodePlans     = [];
+    const libraryHubPlans  = [];
     const pushPlan = (bucket, fn) => { if (typeof fn === "function") bucket.push(fn); };
     let plannedSectionIndex = 0;
     const buildManagedSection = (options) => fillSectionWithItems({
@@ -5123,6 +5233,38 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
     }));
   }
 
+  if (runtimeCfg.enableLibraryHubs) {
+    const libraryHubDefs = resolveLibraryHubsSelection();
+    const libraryHubCount = runtimeCfg.effectiveLibraryHubsCount;
+
+    for (const lib of libraryHubDefs) {
+      const libId = lib.Id;
+      const libName = lib.Name || config.languageLabels.studioHubLibraryFallbackName || "Library";
+      pushPlan(libraryHubPlans, () => buildManagedSection({
+        titleText: libName,
+        badgeType: "new",
+        heroLabel: libName,
+        cardCount: libraryHubCount,
+        showProgress: false,
+        hideHero: runtimeCfg.showLibraryHubsHeroCards !== true,
+        sectionClassName: "library-hub-section",
+        fetcher: Object.assign(
+          () => fetchLibraryHubItems(userId, libraryHubCount + 1, lib).then(async (items) => {
+            await writeCachedList("library_hub", `lib:${libId}`, items.map(x => x?.Id).filter(Boolean));
+            return items;
+          }),
+          {
+            cachedItems: () => loadCachedRowItems("library_hub", `lib:${libId}`, TTL_RECENT_MS, {
+              limit: libraryHubCount + 1,
+              afterLoad: attachSeriesPosterSourceToEpsAndSeasons
+            })
+          }
+        ),
+        onSeeAll: () => gotoHash(buildLibraryHubSeeAllHash(lib))
+      }));
+    }
+  }
+
     const runners = (
       sectionKey === "top10SeriesRows" ? [...top10SeriesPlans] :
       sectionKey === "top10MovieRows" ? [...top10MoviePlans] :
@@ -5130,6 +5272,7 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
       sectionKey === "tmdbTrailerRows" ? [...tmdbTrailerPlans] :
       sectionKey === "continueRows" ? [...continuePlans] :
       sectionKey === "nextUpRows" ? [...nextUpPlans] :
+      sectionKey === "libraryHubs" ? [...libraryHubPlans] :
       [...recentPlans, ...episodePlans]
     );
 
@@ -5192,6 +5335,7 @@ export function cleanupRecentRows() {
     STATE.movieLibs = [];
     STATE.tvLibs = [];
     STATE.otherLibs = [];
+    STATE.allLibs = [];
     STATE.hadMountedSections = false;
     __recentRowsSelfHealPending = false;
     if (__recentRowsSelfHealTimer) {

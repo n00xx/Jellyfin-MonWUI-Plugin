@@ -2781,7 +2781,8 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
       homeSectionsConfig.enableTmdbTopMoviesRowsSection ||
       homeSectionsConfig.enableContinueMovies ||
       homeSectionsConfig.enableContinueSeries ||
-      homeSectionsConfig.enableOtherLibRows
+      homeSectionsConfig.enableOtherLibRows ||
+      homeSectionsConfig.enableLibraryHubs
     );
   }
 
@@ -2800,7 +2801,8 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
       homeSectionsConfig.enableContinueMovies ||
       homeSectionsConfig.enableContinueSeries ||
       homeSectionsConfig.enableNextUpRowsSection ||
-      homeSectionsConfig.enableOtherLibRows
+      homeSectionsConfig.enableOtherLibRows ||
+      homeSectionsConfig.enableLibraryHubs
     ) || matchesAny([
       '#personal-recommendations',
       '#genre-hubs',
@@ -2812,6 +2814,8 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
       '[id^="continue-rows--"]',
       '#nextup-rows',
       '[id^="nextup-rows--"]',
+      '#library-hubs',
+      '[id^="library-hubs--"]',
       '#because-you-watched',
       '[id^="because-you-watched--"]'
     ]);
@@ -2923,6 +2927,8 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
     '[id^="continue-rows--"]',
     '#nextup-rows',
     '[id^="nextup-rows--"]',
+    '#library-hubs',
+    '[id^="library-hubs--"]',
     '#because-you-watched',
     '[id^="because-you-watched--"]',
     '#studio-hubs',
@@ -3407,7 +3413,8 @@ function shouldRenderRecentRowsUi(cfg = getMainConfig()) {
     homeSectionsConfig.enableContinueMovies ||
     homeSectionsConfig.enableContinueSeries ||
     homeSectionsConfig.enableNextUpRowsSection ||
-    homeSectionsConfig.enableOtherLibRows
+    homeSectionsConfig.enableOtherLibRows ||
+    homeSectionsConfig.enableLibraryHubs
   );
 }
 

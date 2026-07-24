@@ -9,6 +9,7 @@ export const SETTINGS_HOTKEY_DEFAULT = "F2";
 const CINEMA_PREROLL_START_FULLSCREEN_DEFAULT = false;
 export const DEFAULT_MANAGED_HOME_SECTION_ORDER = Object.freeze([
   "studioHubs",
+  "libraryHubs",
   "personalRecommendations",
   "top10SeriesRows",
   "top10MovieRows",
@@ -250,6 +251,7 @@ function buildManagedHomeSectionEnabledMap(cfg = {}) {
   const masterEnabled = cfg?.enableHomeSectionsMaster !== false;
   return {
     studioHubs: masterEnabled && cfg?.enableStudioHubs !== false,
+    libraryHubs: masterEnabled && cfg?.enableLibraryHubs === true,
     personalRecommendations: masterEnabled && cfg?.enablePersonalRecommendations !== false,
     top10SeriesRows: isTop10SeriesRowsSectionEnabled(cfg, masterEnabled),
     top10MovieRows: isTop10MovieRowsSectionEnabled(cfg, masterEnabled),
@@ -1101,6 +1103,33 @@ export function getConfig() {
     ),
     personalRecsCacheTtlMs: parseInt(localStorage.getItem('personalRecsCacheTtlMs'), 10) || 3600000,
     enableStudioHubs: localStorage.getItem('enableStudioHubs') !== 'false',
+    enableLibraryHubs: localStorage.getItem('enableLibraryHubs') === 'true',
+    showLibraryHubsHeroCards: localStorage.getItem('showLibraryHubsHeroCards') === 'true',
+    libraryHubsCardCount: parseInt(localStorage.getItem('libraryHubsCardCount'), 10) || 12,
+    libraryHubsHidden: (() => {
+      try {
+        const raw = localStorage.getItem('libraryHubsHidden');
+        if (!raw || raw === '[object Object]') return [];
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr)
+          ? arr.map(x => String(x || '').trim()).filter(Boolean)
+          : [];
+      } catch {
+        return [];
+      }
+    })(),
+    libraryHubsExcludedNames: (() => {
+      try {
+        const raw = localStorage.getItem('libraryHubsExcludedNames');
+        if (!raw || raw === '[object Object]') return ['Downloads'];
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr)
+          ? arr.map(x => String(x || '').trim()).filter(Boolean)
+          : ['Downloads'];
+      } catch {
+        return ['Downloads'];
+      }
+    })(),
     studioHubsColorize: localStorage.getItem('studioHubsColorize') === 'true',
     studioHubsAutoAddFromWatchlistCopy: localStorage.getItem('studioHubsAutoAddFromWatchlistCopy') === 'true',
     placeGenreHubsAbovePersonalRecs: localStorage.getItem('placeGenreHubsAbovePersonalRecs') === 'true' ? true : false,
@@ -1465,6 +1494,7 @@ export function getHomeSectionsRuntimeConfig(source = null) {
     enableContinueMovies: masterEnabled && cfg.enableContinueMovies !== false,
     enableContinueSeries: masterEnabled && cfg.enableContinueSeries !== false,
     enableOtherLibRows: masterEnabled && !!cfg.enableOtherLibRows,
+    enableLibraryHubs: enabledMap.libraryHubs,
     managedSectionOrder: normalizeManagedHomeSectionOrder(cfg?.managedHomeSectionOrder)
       .filter((key) => enabledMap[key]),
   };
