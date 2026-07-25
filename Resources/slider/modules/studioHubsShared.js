@@ -1,6 +1,23 @@
+import {
+  STUDIO_BRANDS,
+  STUDIO_HUB_DEFAULT_NAMES,
+  getCanonicalStudioHubName,
+  normalizeStudioName,
+  resolveStudioBrandEntities,
+  resolveStudioBrandMap
+} from "./studioBrands.js";
 import { fetchJmsPluginConfig, getGlobalTmdbApiKey } from "./jmsPluginConfig.js";
 import { getConfig } from "./config.js";
 import { withServer } from "./jfUrl.js";
+
+export {
+  STUDIO_BRANDS,
+  STUDIO_HUB_DEFAULT_NAMES,
+  getCanonicalStudioHubName,
+  normalizeStudioName,
+  resolveStudioBrandEntities,
+  resolveStudioBrandMap
+};
 
 export const JMS_STUDIO_HUB_MANUAL_ENTRY_ADDED_EVENT = "jms:studio-hub-manual-entry-added";
 
@@ -8,41 +25,13 @@ const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/original";
 const TMDB_FILTERED_LOGO_BASE = "https://media.themoviedb.org/t/p/h100_filter(negate,000,666)";
 
-const STUDIO_NAME_ALIASES = {
-  "Marvel Studios": ["marvel studios", "marvel", "marvel entertainment", "marvel studios llc"],
-  "Pixar": ["pixar", "pixar animation studios", "disney pixar"],
-  "Walt Disney Pictures": ["walt disney", "walt disney pictures"],
-  "Disney+": ["disney+", "disney plus", "disney+ originals", "disney plus originals", "disney+ studio"],
-  "DC": ["dc entertainment", "dc"],
-  "Warner Bros. Pictures": ["warner bros", "warner bros.", "warner bros pictures", "warner bros. pictures", "warner brothers"],
-  "Lucasfilm Ltd.": ["lucasfilm", "lucasfilm ltd", "lucasfilm ltd."],
-  "Columbia Pictures": ["columbia", "columbia pictures", "columbia pictures industries"],
-  "Paramount Pictures": ["paramount", "paramount pictures", "paramount pictures corporation"],
-  "Netflix": ["netflix"],
-  "DreamWorks Animation": ["dreamworks", "dreamworks animation", "dreamworks pictures"]
-};
-
 const STUDIO_JUNK_WORDS = [
   "ltd", "ltd.", "llc", "inc", "inc.", "company", "co.", "corp", "corp.", "the",
   "pictures", "studios", "animation", "film", "films", "pictures.", "studios."
 ];
 
-const STUDIO_CANONICAL_NAME_MAP = new Map(
-  Object.keys(STUDIO_NAME_ALIASES).map((name) => [String(name || "").toLowerCase(), name])
-);
-
-const STUDIO_ALIAS_NAME_MAP = (() => {
-  const out = new Map();
-  for (const [canonical, aliases] of Object.entries(STUDIO_NAME_ALIASES)) {
-    out.set(String(canonical || "").toLowerCase(), canonical);
-    for (const alias of aliases || []) {
-      out.set(String(alias || "").toLowerCase(), canonical);
-    }
-  }
-  return out;
-})();
-const STUDIO_HUB_DEFAULT_NAME_KEYS = new Set(
-  Object.keys(STUDIO_NAME_ALIASES).map((name) => String(name || "").trim().toLowerCase())
+const STUDIO_NAME_ALIASES = Object.fromEntries(
+  STUDIO_BRANDS.map((brand) => [brand.canonical, brand.aliases || []])
 );
 
 const tmdbCompanyResultsCache = new Map();
@@ -142,7 +131,7 @@ function dedupeNames(items) {
   return out;
 }
 
-function normalizeStudioNameBase(value) {
+export function normalizeStudioNameBase(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/[().,\u2122©®\-:_+]/g, " ")
@@ -150,7 +139,7 @@ function normalizeStudioNameBase(value) {
     .trim();
 }
 
-function stripStudioName(value) {
+export function stripStudioName(value) {
   let out = ` ${normalizeStudioNameBase(value)} `;
   for (const word of STUDIO_JUNK_WORDS) {
     out = out.replace(new RegExp(`\\s${word}\\s`, "g"), " ");
@@ -158,20 +147,8 @@ function stripStudioName(value) {
   return out.trim();
 }
 
-function getStudioNameTokens(value) {
+export function getStudioNameTokens(value) {
   return stripStudioName(value).split(" ").filter(Boolean);
-}
-
-function toCanonicalStudioName(name) {
-  if (!name) return null;
-  const key = String(name || "").toLowerCase();
-  return STUDIO_ALIAS_NAME_MAP.get(key) || STUDIO_CANONICAL_NAME_MAP.get(key) || null;
-}
-
-export function getCanonicalStudioHubName(name) {
-  const cleanName = String(name || "").trim();
-  if (!cleanName) return "";
-  return toCanonicalStudioName(cleanName) || cleanName;
 }
 
 function buildStudioHubAllowedNameMap(manualEntries = []) {

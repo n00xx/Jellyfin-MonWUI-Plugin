@@ -1052,3 +1052,200 @@ export function closePersonalExplorer(skipAnimation = false) {
   if (skipAnimation) { cleanup(); return; }
   p_animatedCloseThen(cleanup);
 }
+
+/* ------------------------------------------------------------------ *
+ * Studio explorer
+ *
+ * A studio hub is a brand spanning several Jellyfin Studio entities, and the
+ * native `#/list` route cannot express that: it resolves the page through
+ * `getItem(studioId)`, which 404s on a comma-separated value and renders an
+ * empty page. So the hub cards open this instead, querying the union directly.
+ * ------------------------------------------------------------------ */
+
+let __s_overlay = null;
+let __s_abort = null;
+let __s_busy = false;
+let __s_startIndex = 0;
+let __s_io = null;
+let __s_isClosing = false;
+let __s_studio = { name: "", studioIds: [] };
+
+function s_playOpenAnimation(overlayEl) {
+  const dialog = overlayEl.querySelector('.genre-explorer');
+  const origin = __originPoint || { x: (window.innerWidth / 2) | 0, y: (window.innerHeight / 2) | 0 };
+  dialog.style.transformOrigin = `${origin.x}px ${origin.y}px`;
+  overlayEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out', fill: 'both' });
+  dialog.animate(
+    [{ transform: 'scale(0.84)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+    { duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' }
+  );
+}
+
+function s_animatedCloseThen(cb) {
+  if (!__s_overlay || __s_isClosing) { if (cb) cb(); return; }
+  __s_isClosing = true;
+  const sheet = __s_overlay;
+  const dialog = __s_overlay.querySelector('.genre-explorer');
+  const origin = __originPoint || { x: (window.innerWidth / 2) | 0, y: (window.innerHeight / 2) | 0 };
+  dialog.style.transformOrigin = `${origin.x}px ${origin.y}px`;
+
+  const a = sheet.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: 'ease-in', fill: 'forwards' });
+  const b = dialog.animate(
+    [{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(0.84)', opacity: 0 }],
+    { duration: 220, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' }
+  );
+
+  const done = () => {
+    if (cb) { try { cb(); } catch {} }
+    if (__s_overlay) { try { closeStudioExplorer(true); } catch {} }
+  };
+  let fin = 0;
+  const mark = () => { if (++fin >= 2) done(); };
+  a.addEventListener('finish', mark, { once: true });
+  b.addEventListener('finish', mark, { once: true });
+  setTimeout(mark, 260);
+}
+
+function s_escCloser(e) { if (e.key === 'Escape') s_animatedCloseThen(); }
+function s_hashCloser() { s_animatedCloseThen(); }
+
+function s_renderIntoGrid(items) {
+  const grid = __s_overlay.querySelector('.ge-grid');
+  const empty = __s_overlay.querySelector('.ge-empty');
+
+  if ((!items || items.length === 0) && grid.children.length === 0) {
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const frag = document.createDocumentFragment();
+  for (const it of items) frag.appendChild(createCardFor(it));
+  grid.appendChild(frag);
+  pruneGridIfNeeded();
+}
+
+async function s_loadMore() {
+  if (!__s_overlay || __s_busy) return;
+  if (!__s_studio.studioIds.length) return;
+  __s_busy = true;
+
+  if (__s_abort) { try { __s_abort.abort(); } catch {} }
+  __s_abort = new AbortController();
+
+  const LIMIT = 40;
+  const { userId } = getSessionInfo();
+  const params = new URLSearchParams();
+  params.set("IncludeItemTypes", "Movie,Series");
+  params.set("Recursive", "true");
+  params.set("Fields", COMMON_FIELDS);
+  params.set("SortBy", "CommunityRating,DateCreated");
+  params.set("SortOrder", "Descending");
+  params.set("Limit", String(LIMIT));
+  params.set("StartIndex", String(__s_startIndex));
+  // Comma-separated only. A pipe-separated value does not OR the studios, it
+  // silently returns unrelated items.
+  params.set("StudioIds", __s_studio.studioIds.join(","));
+
+  try {
+    const data = await makeApiRequest(`/Users/${encodeURIComponent(userId)}/Items?${params}`, { signal: __s_abort.signal });
+    const items = Array.isArray(data?.Items) ? data.Items : [];
+    s_renderIntoGrid(items);
+    __s_startIndex += items.length;
+    if (items.length < LIMIT) { try { __s_io?.disconnect(); } catch {} }
+  } catch (e) {
+    if (e?.name !== 'AbortError') console.error("Studio explorer fetch error:", e);
+  } finally {
+    __s_busy = false;
+  }
+}
+
+export function openStudioExplorer(studio) {
+  if (__s_overlay) { try { closeStudioExplorer(true); } catch {} }
+
+  const studioIds = [...new Set((studio?.studioIds || []).map(id => String(id || "").trim()).filter(Boolean))];
+  __s_studio = { name: String(studio?.name || ""), studioIds };
+  __s_startIndex = 0;
+
+  __s_overlay = document.createElement('div');
+  __s_overlay.className = 'genre-explorer-overlay';
+  __s_overlay.innerHTML = `
+    <div class="genre-explorer" role="dialog" aria-modal="true" aria-label="Studio Explorer">
+      <div class="ge-header">
+        <div class="ge-title">
+          ${escapeHtml(__s_studio.name)} • ${(getConfig()?.languageLabels?.all) || "Tümü"}
+        </div>
+        <div class="ge-actions">
+          <button class="ge-close" aria-label="${(getConfig()?.languageLabels?.close) || "Kapat"}">✕</button>
+        </div>
+      </div>
+      <div class="ge-content">
+        <div class="ge-grid" role="list"></div>
+        <div class="ge-empty" style="display:none">
+          ${(getConfig()?.languageLabels?.noResults) || "İçerik bulunamadı"}
+        </div>
+        <div class="ge-sentinel"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(__s_overlay);
+  injectGEPerfStyles();
+  try { s_playOpenAnimation(__s_overlay); } catch {}
+
+  bindExplorerGridDetails(__s_overlay.querySelector('.ge-grid'));
+
+  window.addEventListener('hashchange', s_hashCloser, { passive: true });
+  __s_overlay.querySelector('.ge-close').addEventListener('click', () => s_animatedCloseThen(), { passive: true });
+  __s_overlay.addEventListener('click', (e) => { if (e.target === __s_overlay) s_animatedCloseThen(); }, { passive: true });
+  document.addEventListener('keydown', s_escCloser, { passive: true });
+
+  const scroller = __s_overlay.querySelector('.ge-content');
+  const onScrollPerf = () => {
+    __scrollActive = true;
+    if (__scrollIdleTimer) clearTimeout(__scrollIdleTimer);
+    __scrollIdleTimer = setTimeout(() => {
+      __scrollActive = false;
+      if (!__hydrationRAF && __hydrationQueue.length) {
+        __hydrationRAF = requestAnimationFrame(flushHydrationFrame);
+      }
+    }, 120);
+  };
+  scroller.addEventListener('scroll', onScrollPerf, { passive: true });
+  __s_overlay.__onScrollPerf = onScrollPerf;
+
+  s_loadMore();
+
+  const sentinel = __s_overlay.querySelector('.ge-sentinel');
+  __s_io = new IntersectionObserver((ents) => {
+    for (const ent of ents) {
+      if (ent.isIntersecting) s_loadMore();
+    }
+  }, { root: scroller, rootMargin: '800px 0px' });
+  __s_io.observe(sentinel);
+}
+
+export function closeStudioExplorer(skipAnimation = false) {
+  if (!__s_overlay) return;
+  try { document.removeEventListener('keydown', s_escCloser); } catch {}
+  try { window.removeEventListener('hashchange', s_hashCloser); } catch {}
+  try { __s_io?.disconnect(); } catch {}
+  __s_io = null;
+  if (__s_abort) { try { __s_abort.abort(); } catch {} __s_abort = null; }
+
+  const cleanup = () => {
+    try {
+      const scroller = __s_overlay.querySelector('.ge-content');
+      scroller?.removeEventListener('scroll', __s_overlay.__onScrollPerf);
+      __s_overlay.__onScrollPerf = null;
+    } catch {}
+    __s_overlay?.remove();
+    __s_overlay = null;
+    __s_busy = false;
+    __s_startIndex = 0;
+    __s_isClosing = false;
+    __s_studio = { name: "", studioIds: [] };
+  };
+
+  if (skipAnimation) { cleanup(); return; }
+  s_animatedCloseThen(cleanup);
+}

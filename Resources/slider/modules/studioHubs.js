@@ -3,6 +3,7 @@ import { getConfig, getDeviceProfileAuto, getHomeSectionsRuntimeConfig } from '.
 import { getLanguageLabels } from "../language/index.js";
 import { attachMiniPosterHover } from "./studioHubsUtils.js";
 import { openDetailsModal } from "./detailsModalLoader.js";
+import { openStudioExplorer } from "./genreExplorer.js";
 import {
   keepManagedSectionsBelowNative,
   bindManagedSectionsBelowNative,
@@ -27,71 +28,37 @@ import {
   fetchStudioHubVideoEntries,
   findStudioHubVideoEntry,
   sanitizeStudioHubHiddenNames,
-  sanitizeStudioHubOrderNames
+  sanitizeStudioHubOrderNames,
+  getCanonicalStudioHubName,
+  resolveStudioBrandEntities
 } from "./studioHubsShared.js";
 
 const config = getConfig();
 const PLACEHOLDER_URL = resolveSliderAssetHref(
   config.placeholderImage || "/slider/src/images/placeholder.png"
 );
-const ALIASES = {
-  "Marvel Studios": ["marvel studios","marvel","marvel entertainment","marvel studios llc"],
-  "Pixar": ["pixar","pixar animation studios","disney pixar"],
-  "Walt Disney Pictures": ["walt disney","walt disney pictures"],
-  "Disney+": ["disney+","disney plus","disney+ originals","disney plus originals","disney+ studio"],
-  "DC": ["DC Entertainment","dc entertainment","dc"],
-  "Warner Bros. Pictures": ["warner bros","warner bros.","warner bros pictures","warner bros. pictures","warner brothers"],
-  "Lucasfilm Ltd.": ["lucasfilm","lucasfilm ltd","lucasfilm ltd."],
-  "Columbia Pictures": ["columbia","columbia pictures","columbia pictures industries"],
-  "Paramount Pictures": ["paramount","paramount pictures","paramount pictures corporation"],
-  "DreamWorks Animation": ["dreamworks","dreamworks animation","dreamworks pictures"]
-};
-const CORE_TOKENS = {
-  "Marvel Studios": ["marvel"],
-  "Pixar": ["pixar"],
-  "Walt Disney Pictures": ["walt","disney"],
-  "Disney+": ["disney","plus"],
-  "DC": ["dc","entertainment"],
-  "Warner Bros. Pictures": ["warner"],
-  "Lucasfilm Ltd.": ["lucasfilm"],
-  "Columbia Pictures": ["columbia"],
-  "Paramount Pictures": ["paramount"],
-  "Netflix": ["netflix"],
-  "DreamWorks Animation": ["dreamworks", "animation"]
-};
+// Brand rules, aliases and canonical names now live in studioHubsShared.js so
+// this module and the settings page cannot drift apart. See STUDIO_BRANDS there.
 
 const LOGO_H = 160;
 const CACHE_TTL = 6 * 60 * 60 * 1000;
 const MAP_TTL   = 30 * 24 * 60 * 60 * 1000;
 const IMG_TTL   = 7  * 24 * 60 * 60 * 1000;
-const LS_KEY    = "studioHub_cache_v5";
-const MAP_KEY   = "studioHub_nameIdMap_v5";
-const IMG_KEY   = "studioHub_backdropMap_v1";
+// _v6 / _v2: the cached shape changed from one studio object per hub to a list
+// of studio ids. Without the bump the 30-day nameIdMap would keep serving the
+// old single-entity mapping and the fix would look like it did nothing.
+const LS_KEY    = "studioHub_cache_v6";
+const MAP_KEY   = "studioHub_nameIdMap_v6";
+const IMG_KEY   = "studioHub_backdropMap_v2";
 const STUDIO_ITEMS_LIMIT = 24;
 const STUDIO_RENDER_CONCURRENCY = 4;
-const nbase = s => (s||"").toLowerCase().replace(/[().,™©®\-:_+]/g," ").replace(/\s+/g," ").trim();
-const strip = s => {
-  let out = " " + nbase(s) + " ";
-  for (const w of JUNK_WORDS) out = out.replace(new RegExp(`\\s${w}\\s`, "g"), " ");
-  return out.trim();
-};
-const toks = s => strip(s).split(" ").filter(Boolean);
+const STUDIO_PAGE_SIZE = 1000;
 const DEFAULT_ORDER = [
   "Marvel Studios","Pixar","Walt Disney Pictures","Disney+","DC",
   "Warner Bros. Pictures","Lucasfilm Ltd.","Columbia Pictures","Paramount Pictures",
   "Netflix","DreamWorks Animation"
 ];
-const CANONICALS = new Map(DEFAULT_ORDER.map(n => [n.toLowerCase(), n]));
 const DEFAULT_NAME_KEYS = new Set(DEFAULT_ORDER.map(name => String(name || "").trim().toLowerCase()));
-const JUNK_WORDS = ["ltd","ltd.","llc","inc","inc.","company","co.","corp","corp.","the","pictures","studios","animation","film","films","pictures.","studios."];
-const ALIAS_TO_CANON = (() => {
-  const m = new Map();
-  for (const [canon, aliases] of Object.entries(ALIASES)) {
-    m.set(canon.toLowerCase(), canon);
-    for (const a of aliases) m.set(String(a).toLowerCase(), canon);
-  }
-  return m;
-})();
 
 let __studioHubBusy = false;
 let __fetchAbort = null;
@@ -162,13 +129,32 @@ function upsertImg(card, className) {
 
 function toCanonicalStudioName(name) {
   if (!name) return null;
-  const key = String(name).toLowerCase();
-  return ALIAS_TO_CANON.get(key) || CANONICALS.get(key) || null;
+  const canonical = getCanonicalStudioHubName(name);
+  return DEFAULT_NAME_KEYS.has(nameKey(canonical)) ? canonical : null;
 }
 
-function ensurePreviewButton(card, studioName, studioId, userId) {
+/**
+ * Left-click opens the multi-studio explorer; modified and middle clicks fall
+ * through to the href so "open in new tab" still works on the primary entity.
+ */
+function bindStudioExplorerCard(card, { name, studioIds }) {
+  if (!card || !studioIds?.length) return;
+  card.__jmsStudioIds = studioIds;
+  if (card.__jmsStudioExplorerBound) return;
+  card.__jmsStudioExplorerBound = true;
+
+  card.addEventListener("click", (e) => {
+    if (e.defaultPrevented) return;
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    if (e.target?.closest?.(".hub-preview-btn")) return;
+    e.preventDefault();
+    openStudioExplorer({ name, studioIds: card.__jmsStudioIds });
+  });
+}
+
+function ensurePreviewButton(card, studioName, studioIds, userId) {
   if (!card.querySelector('.hub-preview-btn')) {
-    createPreviewButton(card, studioName, studioId, userId);
+    createPreviewButton(card, studioName, studioIds, userId);
   }
 }
 
@@ -241,7 +227,12 @@ function randomSample(arr, n) {
   return a.slice(0, Math.max(0, n));
 }
 function selectTopNWithMinRating(items, min = MIN_RATING, count = 5) {
-  const pool = items.filter(it => getRating(it) >= min);
+  const list = Array.isArray(items) ? items : [];
+  // Fall back to the unfiltered pool rather than returning nothing: an empty
+  // result here used to blank the preview for any brand whose titles all sat
+  // below the rating threshold.
+  const filtered = list.filter(it => getRating(it) >= min);
+  const pool = filtered.length ? filtered : list;
   if (pool.length <= count) return pool;
   return randomSample(pool, count);
 }
@@ -544,7 +535,7 @@ function showPreviewPopover(anchorEl, studioName, items) {
   pop.__cleanup = cleanup;
 }
 
-function createPreviewButton(card, studioName, studioId, userId) {
+function createPreviewButton(card, studioName, studioIds, userId) {
   const btn = document.createElement('button');
   btn.className = 'hub-preview-btn';
   btn.setAttribute('aria-label', `${studioName} ${(config.languageLabels.previewButtonLabel || "Önizleme")}`);
@@ -560,7 +551,7 @@ function createPreviewButton(card, studioName, studioId, userId) {
     btn.style.opacity = '0.5';
     try {
       const signal = __fetchAbort ? __fetchAbort.signal : null;
-      const fetched = await fetchStudioItemsViaUsers(studioId, studioName, userId, signal);
+      const fetched = await fetchStudioItemsViaUsers(studioIds, studioName, userId, signal);
       studioItems = selectTopNWithMinRating(fetched, MIN_RATING, 5);
     } catch (err) {
       console.error('Ön izleme verileri alınamadı:', err);
@@ -622,7 +613,7 @@ async function setupHoverVideo(card, options = {}) {
   const logoUrl = options.logoUrl || null;
   const customVideoUrl = options.customVideoUrl || null;
   const studioName = options.studioName || "";
-  const studioId = options.studioId || "";
+  const studioIds = options.studioIds || [];
   const userId = options.userId || "";
 
   const derivedVideoUrls = logoUrl ? deriveVideoCandidatesFromLogo(logoUrl) : [];
@@ -643,8 +634,8 @@ async function setupHoverVideo(card, options = {}) {
     vidEl.setAttribute("aria-hidden", "true");
     card.style.position = card.style.position || "relative";
     card.appendChild(vidEl);
-    if (studioName && studioId && userId) {
-      ensurePreviewButton(card, studioName, studioId, userId);
+    if (studioName && studioIds.length && userId) {
+      ensurePreviewButton(card, studioName, studioIds, userId);
     }
     return vidEl;
   };
@@ -750,38 +741,90 @@ async function resolveLogoUrl(name) {
   return null;
 }
 
-async function fetchStudios(signal) {
-  const url = `/Studios?Limit=300&Recursive=true&SortBy=SortName&SortOrder=Ascending`;
-  const res = await fetch(withServer(url), { headers: hJSON(), signal, credentials: 'same-origin' });
-  if (!res.ok) throw new Error("Studios alınamadı");
-  const data = await res.json();
-  const items = Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
-  return items.map(s => ({
-    Id: s.Id,
-    Name: s.Name,
-    ImageTags: s.ImageTags || {},
-    PrimaryImageTag: s.PrimaryImageTag || (s.ImageTags?.Primary) || null
-  }));
+/**
+ * Every studio the user can see.
+ *
+ * Paged, because the old `Limit=300` silently truncated: a 338-studio library
+ * lost Walt Disney Pictures, Warner Bros. and Universal off the end of the
+ * SortName-ascending page, and those are default hubs.
+ */
+async function fetchStudios(signal, userId) {
+  const out = [];
+  let startIndex = 0;
+
+  for (;;) {
+    const params = new URLSearchParams({
+      Limit: String(STUDIO_PAGE_SIZE),
+      StartIndex: String(startIndex),
+      SortBy: "SortName",
+      SortOrder: "Ascending"
+    });
+    if (userId) params.set("userId", userId);
+
+    const res = await fetch(withServer(`/Studios?${params}`), { headers: hJSON(), signal, credentials: 'same-origin' });
+    if (!res.ok) {
+      if (out.length) break;
+      throw new Error("Studios alınamadı");
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
+    out.push(...items.map(s => ({
+      Id: s.Id,
+      Name: s.Name,
+      ImageTags: s.ImageTags || {},
+      PrimaryImageTag: s.PrimaryImageTag || (s.ImageTags?.Primary) || null
+    })));
+
+    const total = Number(data?.TotalRecordCount);
+    startIndex += items.length;
+    if (!items.length || !Number.isFinite(total) || startIndex >= total) break;
+  }
+
+  return out;
 }
 
-async function fetchStudioItemsViaUsers(studioId, studioName, userId, signal, options = {}) {
-  const ratingPart = Number.isFinite(MIN_RATING) ? `&MinCommunityRating=${MIN_RATING}` : "";
+function toStudioIdList(studioIds) {
+  const list = Array.isArray(studioIds) ? studioIds : [studioIds];
+  return [...new Set(list.map(id => String(id || "").trim()).filter(Boolean))];
+}
+
+/**
+ * Items for a brand, unioned across every studio entity it owns.
+ *
+ * `StudioIds` must be comma-separated — a pipe-separated value does not OR,
+ * it returns unrelated results (203 items instead of 12 when measured).
+ *
+ * `minRating` is opt-in. It used to be baked into every call, including the one
+ * that decides whether a card exists at all, so a brand whose titles all sat
+ * below the threshold silently lost its card.
+ */
+async function fetchStudioItemsViaUsers(studioIds, studioName, userId, signal, options = {}) {
+  const ids = toStudioIdList(studioIds);
+  if (!ids.length) return [];
+
   const limit = Math.max(1, Math.min(STUDIO_ITEMS_LIMIT, Number(options.limit) || STUDIO_ITEMS_LIMIT));
-  const common = `StartIndex=0&Limit=${limit}&Fields=PrimaryImageAspectRatio,ImageTags,BackdropImageTags,CommunityRating,CriticRating&Recursive=true&SortOrder=Descending${ratingPart}`;
-  const urls = [
-    `/Users/${userId}/Items?${common}&IncludeItemTypes=Movie,Series&StudioIds=${encodeURIComponent(studioId)}`,
-    `/Users/${userId}/Items?${common}&IncludeItemTypes=Movie,Series&Studios=${encodeURIComponent(studioName)}`
-  ];
-  for (const u of urls) {
-    try {
-      const r = await fetch(withServer(u), { headers: hJSON(), signal, credentials: 'same-origin' });
-      if (!r.ok) continue;
-      const data = await r.json();
-      const items = Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
-      if (items.length) return items;
-    } catch {}
+  const params = new URLSearchParams({
+    StartIndex: "0",
+    Limit: String(limit),
+    Fields: "PrimaryImageAspectRatio,ImageTags,BackdropImageTags,CommunityRating,CriticRating",
+    Recursive: "true",
+    SortOrder: "Descending",
+    IncludeItemTypes: "Movie,Series",
+    StudioIds: ids.join(",")
+  });
+  if (Number.isFinite(options.minRating)) {
+    params.set("MinCommunityRating", String(options.minRating));
   }
-  return [];
+
+  try {
+    const r = await fetch(withServer(`/Users/${userId}/Items?${params}`), { headers: hJSON(), signal, credentials: 'same-origin' });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
+  } catch {
+    return [];
+  }
 }
 
 function hJSON() {
@@ -857,9 +900,12 @@ async function getStudioOrderList(manualEntries = []) {
   }
 }
 
-async function chooseBackdropForStudio(studio, userId, signal, options = {}) {
+async function chooseBackdropForStudio(brand, userId, signal, options = {}) {
+  // Keyed by brand name, not studio id: a brand spans several entities and the
+  // "primary" one can change as metadata is refreshed.
+  const cacheKey = nameKey(brand?.canonical || brand?.name);
   const map = loadCache(IMG_KEY, IMG_TTL) || {};
-  const cached = map[studio.Id];
+  const cached = map[cacheKey];
   if (cached?.itemId && Number.isInteger(cached?.index)) {
     const itemId = cached.itemId;
     const idx    = cached.index;
@@ -872,7 +918,7 @@ async function chooseBackdropForStudio(studio, userId, signal, options = {}) {
 
   const items = Array.isArray(options.items)
     ? options.items
-    : await fetchStudioItemsViaUsers(studio.Id, studio.Name, userId, signal);
+    : await fetchStudioItemsViaUsers(brand?.studioIds, brand?.canonical, userId, signal);
   if (!items.length) return null;
 
   const withBd = items.filter(it => Array.isArray(it.BackdropImageTags) && it.BackdropImageTags.length);
@@ -885,15 +931,15 @@ async function chooseBackdropForStudio(studio, userId, signal, options = {}) {
   if (!url) {
     const purl = buildPosterUrl(candidate);
     if (!purl) return null;
-    const payload = { studioId: studio.Id, itemId: candidate.Id, index: -1, tag: candidate.ImageTags?.Primary || candidate.PrimaryImageTag || null };
-    const newMap = { ...map, [studio.Id]: payload };
+    const payload = { itemId: candidate.Id, index: -1, tag: candidate.ImageTags?.Primary || candidate.PrimaryImageTag || null };
+    const newMap = { ...map, [cacheKey]: payload };
     saveCache(IMG_KEY, newMap);
     return { itemId: candidate.Id, index: -1, url: purl };
   }
 
   const tag = (candidate.BackdropImageTags||[])[idx] || null;
-  const payload = { studioId: studio.Id, itemId: candidate.Id, index: idx, tag };
-  const newMap = { ...map, [studio.Id]: payload };
+  const payload = { itemId: candidate.Id, index: idx, tag };
+  const newMap = { ...map, [cacheKey]: payload };
   saveCache(IMG_KEY, newMap);
 
   return { itemId: candidate.Id, index: idx, url };
@@ -1034,20 +1080,44 @@ export async function renderStudioHubs() {
     if (section) section.style.display = "";
 
     const cached = loadCache(LS_KEY, CACHE_TTL);
-    const studios = cached || await fetchStudios(__fetchAbort.signal).catch(() => []);
+    const studios = cached || await fetchStudios(__fetchAbort.signal, userId).catch(() => []);
     if (!cached && studios.length) saveCache(LS_KEY, studios);
 
-    const nameMap = loadCache(MAP_KEY, MAP_TTL) || {};
+    // A hub is a brand, and a brand spans every Jellyfin Studio entity matching
+    // its rules — resolving to a single "best" entity is what hid most of the
+    // library behind each card.
+    //
+    // Resolution runs every render. It is pure and operates on an array we
+    // already hold, so it costs nothing, and caching it would re-create the bug
+    // one level up: a stored mapping would outlive new studios, metadata
+    // refreshes and registry edits. MAP_KEY is only an offline fallback for
+    // when the studio fetch fails outright.
+    const fallbackMap = loadCache(MAP_KEY, MAP_TTL) || {};
+    const nextMap = {};
     const resolved = [];
+
     for (const desired of wanted) {
       const manualEntry = (manualEntries || []).find(entry => nameKey(entry?.name || entry?.Name) === nameKey(desired)) || null;
       const manualId = String(manualEntry?.studioId || manualEntry?.StudioId || "").trim();
-      let studio = manualId
-        ? { Id: manualId, Name: desired }
-        : (nameMap[desired] || studios.find(s => matches(desired, s.Name)) || await searchStudiosByAliases(desired, __fetchAbort.signal));
-      if (studio) { resolved.push({ name: desired, studio }); nameMap[desired] = studio; }
+
+      let brand;
+      if (manualId) {
+        // Manual entries stay single-entity on purpose: the admin picked one
+        // specific studio, so we honour exactly that.
+        brand = { canonical: desired, studioIds: [manualId], studioNames: [desired], primaryId: manualId };
+      } else if (studios.length) {
+        brand = resolveStudioBrandEntities(desired, studios);
+      } else {
+        brand = fallbackMap[desired];
+      }
+
+      if (brand?.studioIds?.length) {
+        resolved.push({ name: desired, brand });
+        nextMap[desired] = brand;
+      }
     }
-    saveCache(MAP_KEY, nameMap);
+
+    if (studios.length) saveCache(MAP_KEY, nextMap);
 
     const resolvedNames = new Set(resolved.map(({ name }) => nameKey(name)));
     for (const desired of wanted) {
@@ -1057,7 +1127,7 @@ export async function renderStudioHubs() {
       delete shells[desired];
     }
 
-    await mapSettledLimit(resolved, STUDIO_RENDER_CONCURRENCY, async ({ name, studio }) => {
+    await mapSettledLimit(resolved, STUDIO_RENDER_CONCURRENCY, async ({ name, brand }) => {
       const card = shells[name];
       if (!card) return;
       const enableColorize = config.studioHubsColorize !== false;
@@ -1070,8 +1140,11 @@ export async function renderStudioHubs() {
         card.style.removeProperty('--hub-card-bg');
         card.style.removeProperty('--hub-card-shadow');
       }
-      const detailsHref = buildStudioHref(studio.Id, serverId);
-      card.href = detailsHref;
+      // Native #/list cannot take a multi-id studioId (the route 404s on the
+      // getItem lookup and renders nothing), so the card opens the explorer.
+      // The href keeps the primary entity so middle-click still does something.
+      card.href = buildStudioHref(brand.primaryId, serverId);
+      bindStudioExplorerCard(card, { name, studioIds: brand.studioIds, userId });
       card.classList.remove("hub-card-textonly");
 
       const isDefaultHub = isDefaultStudioHub(name);
@@ -1082,7 +1155,7 @@ export async function renderStudioHubs() {
       const customVideoUrl = buildStudioHubVideoUrl(sharedVideoEntry);
       const needsStudioItems = isDefaultHub && !logoUrl;
       const studioItems = needsStudioItems
-        ? await fetchStudioItemsViaUsers(studio.Id, studio.Name || name, userId, __fetchAbort.signal, {
+        ? await fetchStudioItemsViaUsers(brand.studioIds, name, userId, __fetchAbort.signal, {
             limit: STUDIO_ITEMS_LIMIT
           })
         : null;
@@ -1105,7 +1178,7 @@ export async function renderStudioHubs() {
       }
 
       if (!used) {
-        const chosen = await chooseBackdropForStudio(studio, userId, __fetchAbort.signal, { items: studioItems });
+        const chosen = await chooseBackdropForStudio(brand, userId, __fetchAbort.signal, { items: studioItems });
         if (chosen?.url) {
           const img = upsertImg(card, "hub-img");
           img.alt = name;
@@ -1123,14 +1196,14 @@ export async function renderStudioHubs() {
         }
       }
 
-      ensurePreviewButton(card, name, studio.Id, userId);
+      ensurePreviewButton(card, name, brand.studioIds, userId);
 
       if (config.studioHubsHoverVideo) {
         await setupHoverVideo(card, {
           logoUrl,
           customVideoUrl,
           studioName: name,
-          studioId: studio.Id,
+          studioIds: brand.studioIds,
           userId
         });
       }
@@ -1291,38 +1364,6 @@ function setupScroller(row) {
   row.addEventListener('touchmove',  (e) => { e.stopPropagation(); }, { passive: true });
 
   requestAnimationFrame(updateButtons);
-}
-
-function scoreMatch(desired, candidate) {
-  const a = new Set(toks(desired));
-  const b = new Set(toks(candidate));
-  if (!a.size || !b.size) return 0;
-  let inter = 0;
-  for (const t of a) if (b.has(t)) inter++;
-  const core = (CORE_TOKENS[desired]||[]).some(c => b.has(nbase(c)));
-  if (!core) return 0;
-  return 1.0 + inter / Math.min(a.size, b.size);
-}
-const matches = (desired, cand) => scoreMatch(desired, cand) >= 1.3;
-
-async function searchStudiosByAliases(desired, signal) {
-  const list = [desired, ...(ALIASES[desired] || [])];
-  let best = null, bestScore = 0;
-  for (const term of list) {
-    const url = `/Studios?SearchTerm=${encodeURIComponent(term)}&Limit=20`;
-    try {
-      const r = await fetch(withServer(url), { headers: hJSON(), signal });
-      if (!r.ok) continue;
-      const data = await r.json();
-      const items = Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
-      for (const s of items) {
-        const sc = scoreMatch(desired, s.Name);
-        if (sc > bestScore) { best = s; bestScore = sc; }
-      }
-    } catch {}
-  }
-  if (!best || bestScore < 1.3) return null;
-  return { Id: best.Id, Name: best.Name, ImageTags: best.ImageTags || {}, PrimaryImageTag: best.PrimaryImageTag || (best.ImageTags?.Primary) || null };
 }
 
 export function ensureStudioHubsMounted({ eager=false, force=false } = {}) {
