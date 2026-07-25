@@ -175,6 +175,7 @@ export function normalizeManagedHomeSectionOrder(value = null, { nativeEntries }
 
   DEFAULT_MANAGED_HOME_SECTION_ORDER.forEach(push);
 
+  ensureImplicitManagedFollowerOrder(out, explicit, "studioHubs", "libraryHubs");
   ensureImplicitManagedFollowerOrder(out, explicit, "tmdbTopMoviesRows", "tmdbTrailerRows");
   ensureImplicitManagedFollowerOrder(out, explicit, "recentRows", "continueRows");
   ensureImplicitManagedFollowerOrder(out, explicit, "continueRows", "nextUpRows");
@@ -1103,8 +1104,8 @@ export function getConfig() {
     ),
     personalRecsCacheTtlMs: parseInt(localStorage.getItem('personalRecsCacheTtlMs'), 10) || 3600000,
     enableStudioHubs: localStorage.getItem('enableStudioHubs') !== 'false',
-    enableLibraryHubs: localStorage.getItem('enableLibraryHubs') === 'true',
-    showLibraryHubsHeroCards: localStorage.getItem('showLibraryHubsHeroCards') === 'true',
+    enableLibraryHubs: localStorage.getItem('enableLibraryHubs') !== 'false',
+    showLibraryHubsHeroCards: localStorage.getItem('showLibraryHubsHeroCards') !== 'false',
     libraryHubsCardCount: parseInt(localStorage.getItem('libraryHubsCardCount'), 10) || 12,
     libraryHubsHidden: (() => {
       try {

@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.0.5",
+        "changelog": "v3.7.0.5 (custom fork)\n\nLibrary Collections improvements:\n- Enabled by default now, together with its hero card.\n- Fixed display order: Peliculas, Series, Doramas, Anime, Donghuas, Shows,\n  Documentales, Collections. Collections always stays last; a newly added\n  library slots in before it. Matching ignores accents, so \"Peliculas\" and\n  \"Peliculas\" with the accent behave the same.\n- Library Collections now sits right after Studio Collections in\n  Home Section Order, unless you reordered it yourself.\n- The large hero card of each category now changes to a random title every\n  5 minutes. Rows are staggered so they do not all change at once, and a\n  row is skipped while you hover it or while its trailer is playing.\n- Trailer playback is disabled in the Collections category only: BoxSets\n  carry no trailer, so it could not work there.\n\nFixes:\n- Fixed the clipped left/right scroll arrows in the Library Collections rows.\n  These rows were missing the container padding and the button styling that\n  every other home row gets, so the arrows were cut off at the edge and\n  rendered flat instead of as circular buttons. Card sizing and the progress\n  bar in these rows now match the rest of the home screen too.\n- The hero card now releases its trailer frame and backdrop image when it is\n  replaced, instead of leaking one of each per swap.\n\nNotes:\n- Restart Jellyfin after install\n- Hard refresh (Ctrl + F5) may be required",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.0.5/JMSFusion-3.7.0.5-server.zip",
+        "checksum": "d5b2929d4b3c737f2a5723c2f8eb099b",
+        "timestamp": "2026-07-25T02:28:00.0000000Z"
+      },
+      {
         "version": "3.7.0.4",
         "changelog": "v3.7.0.4 (custom fork)\n\nNew: Library Collections\n- Adds one home row per Jellyfin library (Anime, Documentales, Donghuas,\n  Doramas, Peliculas, Series, Shows, ...), each showing its content plus a\n  See All link.\n- Categories are detected automatically from your libraries, so renaming or\n  adding one keeps working. Utility folders (Downloads) are excluded.\n- Each category has its own enable/disable checkbox under\n  Studio Collection Settings > Library Collections.\n- Card count per category is configurable (default 12).\n- Disabled by default on fresh installs.\n\nFixes:\n- update_meta.sh now emits a valid ISO timestamp on macOS/BSD\n  (%7N is a GNU date extension and was written out literally).\n\nNotes:\n- Restart Jellyfin after install\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
