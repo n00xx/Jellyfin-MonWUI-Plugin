@@ -34,80 +34,34 @@ import {
   sanitizeStudioHubHiddenNames,
   sanitizeStudioHubOrderNames,
   uploadStudioHubLogo,
-  uploadStudioHubVideo
+  uploadStudioHubVideo,
+  STUDIO_BRANDS,
+  getCanonicalStudioHubName,
+  resolveStudioBrandEntities,
+  resolveStudioBrandMap,
+  normalizeStudioNameBase,
+  stripStudioName,
+  getStudioNameTokens
 } from "../studioHubsShared.js";
 
-const DEFAULT_ORDER = [
-  "Marvel Studios","Pixar","Walt Disney Pictures","Disney+","DC",
-  "Warner Bros. Pictures","Lucasfilm Ltd.","Columbia Pictures",
-  "Paramount Pictures","Netflix","DreamWorks Animation"
-];
+// Brand names, aliases and matching rules come from studioHubsShared.js — this
+// page used to carry a byte-identical copy, which is exactly how the two drift.
+const DEFAULT_ORDER = STUDIO_BRANDS.map(brand => brand.canonical);
 
-const ALIASES = {
-  "Marvel Studios": ["marvel studios","marvel","marvel entertainment","marvel studios llc"],
-  "Pixar": ["pixar","pixar animation studios","disney pixar"],
-  "Walt Disney Pictures": ["walt disney","walt disney pictures"],
-  "Disney+": ["disney+","disney plus","disney+ originals","disney plus originals","disney+ studio"],
-  "DC": ["dc entertainment","dc"],
-  "Warner Bros. Pictures": ["warner bros","warner bros.","warner bros pictures","warner bros. pictures","warner brothers"],
-  "Lucasfilm Ltd.": ["lucasfilm","lucasfilm ltd","lucasfilm ltd."],
-  "Columbia Pictures": ["columbia","columbia pictures","columbia pictures industries"],
-  "Paramount Pictures": ["paramount","paramount pictures","paramount pictures corporation"],
-  "Netflix": ["netflix"],
-  "DreamWorks Animation": ["dreamworks","dreamworks animation","dreamworks pictures"]
-};
-const CORE_TOKENS = {
-  "Marvel Studios": ["marvel"],
-  "Pixar": ["pixar"],
-  "Walt Disney Pictures": ["walt","disney"],
-  "Disney+": ["disney","plus"],
-  "DC": ["dc","entertainment"],
-  "Warner Bros. Pictures": ["warner"],
-  "Lucasfilm Ltd.": ["lucasfilm"],
-  "Columbia Pictures": ["columbia"],
-  "Paramount Pictures": ["paramount"],
-  "Netflix": ["netflix"],
-  "DreamWorks Animation": ["dreamworks", "animation"]
-};
-
-const JUNK_WORDS = [
-  "ltd","ltd.","llc","inc","inc.","company","co.","corp","corp.","the",
-  "pictures","studios","animation","film","films","pictures.","studios."
-];
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/original";
 const TMDB_FILTERED_LOGO_BASE = "https://media.themoviedb.org/t/p/h100_filter(negate,000,666)";
 
-const nbase = s =>
-  (s || "")
-    .toLowerCase()
-    .replace(/[().,™©®\-:_+]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+const nbase = normalizeStudioNameBase;
+const strip = stripStudioName;
+const toks = getStudioNameTokens;
 
-const strip = s => {
-  let out = " " + nbase(s) + " ";
-  for (const w of JUNK_WORDS) out = out.replace(new RegExp(`\\s${w}\\s`, "g"), " ");
-  return out.trim();
-};
-
-const toks = s => strip(s).split(" ").filter(Boolean);
-
-const CANONICALS = new Map(DEFAULT_ORDER.map(n => [n.toLowerCase(), n]));
-
-const ALIAS_TO_CANON = (() => {
-  const m = new Map();
-  for (const [canon, aliases] of Object.entries(ALIASES)) {
-    m.set(canon.toLowerCase(), canon);
-    for (const a of aliases) m.set(String(a).toLowerCase(), canon);
-  }
-  return m;
-})();
+const DEFAULT_ORDER_KEYS = new Set(DEFAULT_ORDER.map(n => n.toLowerCase()));
 
 function toCanonicalStudioName(name) {
   if (!name) return null;
-  const key = String(name).toLowerCase();
-  return ALIAS_TO_CANON.get(key) || CANONICALS.get(key) || null;
+  const canonical = getCanonicalStudioHubName(name);
+  return DEFAULT_ORDER_KEYS.has(String(canonical).toLowerCase()) ? canonical : null;
 }
 
 function mergeOrder(defaults, custom) {
@@ -149,49 +103,6 @@ function isDefaultStudioHub(name) {
   return DEFAULT_NAME_KEYS.has(nameKey(name));
 }
 
-function scoreStudioHubMatch(desired, candidate) {
-  const desiredTokens = new Set(toks(desired));
-  const candidateTokens = new Set(toks(candidate));
-  if (!desiredTokens.size || !candidateTokens.size) return 0;
-
-  let intersection = 0;
-  for (const token of desiredTokens) {
-    if (candidateTokens.has(token)) intersection++;
-  }
-
-  const hasCoreToken = (CORE_TOKENS[desired] || []).some(token => candidateTokens.has(nbase(token)));
-  if (!hasCoreToken) return 0;
-
-  return 1 + (intersection / Math.min(desiredTokens.size, candidateTokens.size));
-}
-
-function matchesStudioHubName(desired, candidate) {
-  return scoreStudioHubMatch(desired, candidate) >= 1.3;
-}
-
-async function searchStudioHubByAliases(desired, signal) {
-  const lookupTerms = [desired, ...(ALIASES[desired] || [])];
-  let bestMatch = null;
-  let bestScore = 0;
-
-  for (const term of lookupTerms) {
-    let data = null;
-    try {
-      data = await makeApiRequest(`/Studios?SearchTerm=${encodeURIComponent(term)}&Limit=20`, { signal });
-    } catch {}
-    const items = Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
-    for (const studio of items) {
-      const score = scoreStudioHubMatch(desired, studio?.Name || "");
-      if (score > bestScore) {
-        bestMatch = studio;
-        bestScore = score;
-      }
-    }
-  }
-
-  return bestScore >= 1.3 ? bestMatch : null;
-}
-
 async function getStudioHubCurrentUserId(signal) {
   try {
     const me = await makeApiRequest("/Users/Me", { signal });
@@ -201,67 +112,110 @@ async function getStudioHubCurrentUserId(signal) {
   }
 }
 
-async function defaultStudioHubHasItems(studioId, studioName, userId, runtimeConfig, signal) {
-  const cleanStudioId = String(studioId || "").trim();
-  const cleanStudioName = String(studioName || "").trim();
-  const cleanUserId = String(userId || "").trim();
-  if (!cleanStudioId || !cleanUserId) return false;
+async function fetchAllStudios(signal) {
+  const out = [];
+  let startIndex = 0;
 
-  const minRating = Number.isFinite(runtimeConfig?.studioHubsMinRating)
-    ? Number(runtimeConfig.studioHubsMinRating)
-    : null;
-  const ratingPart = Number.isFinite(minRating) ? `&MinCommunityRating=${minRating}` : "";
-  const common = `StartIndex=0&Limit=1&Fields=PrimaryImageAspectRatio,ImageTags,BackdropImageTags,CommunityRating,CriticRating&Recursive=true&SortOrder=Descending${ratingPart}`;
-  const urls = [
-    `/Users/${encodeURIComponent(cleanUserId)}/Items?${common}&IncludeItemTypes=Movie,Series&StudioIds=${encodeURIComponent(cleanStudioId)}`,
-    `/Users/${encodeURIComponent(cleanUserId)}/Items?${common}&IncludeItemTypes=Movie,Series&Studios=${encodeURIComponent(cleanStudioName)}`
-  ];
+  for (;;) {
+    const params = new URLSearchParams({
+      Limit: "1000",
+      StartIndex: String(startIndex),
+      SortBy: "SortName",
+      SortOrder: "Ascending"
+    });
 
-  for (const url of urls) {
+    let data = null;
     try {
-      const data = await makeApiRequest(url, { signal });
-      const items = Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
-      if (items.length) return true;
-    } catch {}
+      data = await makeApiRequest(`/Studios?${params}`, { signal });
+    } catch {
+      break;
+    }
+
+    const items = Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
+    out.push(...items);
+
+    const total = Number(data?.TotalRecordCount);
+    startIndex += items.length;
+    if (!items.length || !Number.isFinite(total) || startIndex >= total) break;
   }
 
-  return false;
+  return out;
+}
+
+/**
+ * How many items a brand owns across all of its studio entities.
+ *
+ * No MinCommunityRating here on purpose: this decides whether a hub exists at
+ * all, and filtering by rating used to make well-stocked brands look empty.
+ */
+async function studioBrandItemCount(studioIds, userId, signal) {
+  const ids = [...new Set((studioIds || []).map(id => String(id || "").trim()).filter(Boolean))];
+  const cleanUserId = String(userId || "").trim();
+  if (!ids.length || !cleanUserId) return 0;
+
+  const params = new URLSearchParams({
+    StartIndex: "0",
+    Limit: "0",
+    Recursive: "true",
+    IncludeItemTypes: "Movie,Series",
+    StudioIds: ids.join(",")
+  });
+
+  try {
+    const data = await makeApiRequest(`/Users/${encodeURIComponent(cleanUserId)}/Items?${params}`, { signal });
+    return Number(data?.TotalRecordCount) || 0;
+  } catch {
+    return 0;
+  }
 }
 
 async function findEmptyDefaultStudioHubNames(runtimeConfig, signal) {
   const userId = await getStudioHubCurrentUserId(signal);
   if (!userId) return [];
 
-  let data = null;
-  try {
-    data = await makeApiRequest("/Studios?Limit=300&Recursive=true&SortBy=SortName&SortOrder=Ascending", { signal });
-  } catch {
-    return [];
-  }
-
-  const studios = Array.isArray(data?.Items) ? data.Items : (Array.isArray(data) ? data : []);
+  const studios = await fetchAllStudios(signal);
   const emptyNames = [];
 
   for (const desired of DEFAULT_ORDER) {
-    const studio =
-      studios.find(item => matchesStudioHubName(desired, item?.Name || "")) ||
-      await searchStudioHubByAliases(desired, signal);
-    if (!studio?.Id) {
+    const brand = resolveStudioBrandEntities(desired, studios);
+    if (!brand.studioIds.length) {
       emptyNames.push(desired);
       continue;
     }
-
-    const hasItems = await defaultStudioHubHasItems(
-      studio.Id,
-      studio.Name || desired,
-      userId,
-      runtimeConfig,
-      signal
-    );
-    if (!hasItems) emptyNames.push(desired);
+    const count = await studioBrandItemCount(brand.studioIds, userId, signal);
+    if (!count) emptyNames.push(desired);
   }
 
   return emptyNames;
+}
+
+/**
+ * Per-brand resolution report: which studio entities each hub claims, how many
+ * items that yields, and which entities no brand claimed.
+ *
+ * This is the guard against the original bug recurring silently — a hub bound
+ * to the wrong entity, or a brand quietly missing half the library, is now
+ * something you can see instead of something you discover by counting posters.
+ */
+async function buildStudioHubDiagnostics(signal) {
+  const userId = await getStudioHubCurrentUserId(signal);
+  const studios = await fetchAllStudios(signal);
+  const { brands, unmatched } = resolveStudioBrandMap(DEFAULT_ORDER, studios);
+
+  const rows = [];
+  for (const desired of DEFAULT_ORDER) {
+    const brand = brands.get(nameKey(desired));
+    const count = brand?.studioIds?.length
+      ? await studioBrandItemCount(brand.studioIds, userId, signal)
+      : 0;
+    rows.push({
+      name: desired,
+      entities: brand?.studioNames || [],
+      count
+    });
+  }
+
+  return { rows, unmatched, totalStudios: studios.length };
 }
 
 function createHiddenInput(id, value) {
@@ -441,8 +395,10 @@ function buildTmdbStudioQueries(studioName) {
   if (!cleanName) return [];
 
   const canonical = toCanonicalStudioName(cleanName);
-  const aliases = canonical ? (ALIASES[canonical] || []) : [];
-  return dedupeNames([cleanName, canonical, ...aliases]);
+  const brand = canonical
+    ? STUDIO_BRANDS.find(item => nameKey(item.canonical) === nameKey(canonical))
+    : null;
+  return dedupeNames([cleanName, canonical, ...(brand?.aliases || [])]);
 }
 
 function scoreTmdbCompanyCandidate(candidate, studioName) {
@@ -1169,6 +1125,94 @@ function createLibraryHubsSection(config, labels) {
     });
 
   bindCheckboxKontrol('#enableLibraryHubs', '#library-hubs-suboptions');
+
+  return section;
+}
+
+
+function createStudioHubsDiagnosticsSection(config, labels) {
+  const L = (key, fallback) => labels?.[key] || config?.languageLabels?.[key] || fallback;
+  const section = createSection(L("studioHubsDiagnostics", "Studio matching report"));
+
+  const hint = document.createElement("div");
+  hint.className = "field-description";
+  hint.textContent = L(
+    "studioHubsDiagnosticsHint",
+    "Shows which studio entries each collection matches. A collection spans every matching studio, so a title tagged \"Marvel Entertainment\" and one tagged \"Marvel Studios\" both land in Marvel."
+  );
+  section.appendChild(hint);
+
+  const output = document.createElement("div");
+  output.className = "jms-studio-diagnostics";
+  output.style.cssText = "margin-top:.75em;font-size:.9em;line-height:1.7;";
+  section.appendChild(output);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "emby-button raised";
+  button.textContent = L("studioHubsDiagnosticsRun", "Analyse studios");
+  section.appendChild(button);
+
+  let running = false;
+  button.addEventListener("click", async () => {
+    if (running) return;
+    running = true;
+    button.disabled = true;
+    output.textContent = L("studioHubsDiagnosticsBusy", "Analysing…");
+
+    try {
+      const report = await buildStudioHubDiagnostics(null);
+      output.innerHTML = "";
+
+      const summary = document.createElement("div");
+      summary.style.cssText = "opacity:.75;margin-bottom:.5em;";
+      summary.textContent = `${report.totalStudios} studios · ${report.unmatched.length} unassigned`;
+      output.appendChild(summary);
+
+      for (const row of report.rows) {
+        const line = document.createElement("div");
+        line.style.cssText = "display:flex;gap:.6em;align-items:baseline;padding:.2em 0;";
+
+        const name = document.createElement("strong");
+        name.textContent = row.name;
+        name.style.cssText = "min-width:12em;";
+
+        const count = document.createElement("span");
+        count.textContent = String(row.count);
+        count.style.cssText = `min-width:3em;text-align:right;${row.count ? "" : "color:#e08;"}`;
+
+        const entities = document.createElement("span");
+        entities.style.opacity = ".7";
+        entities.textContent = row.entities.length
+          ? row.entities.join(", ")
+          : L("studioHubsDiagnosticsNoMatch", "no matching studio");
+
+        line.append(name, count, entities);
+        output.appendChild(line);
+      }
+
+      if (report.unmatched.length) {
+        const details = document.createElement("details");
+        details.style.marginTop = ".75em";
+        const sum = document.createElement("summary");
+        sum.textContent = L("studioHubsDiagnosticsUnmatched", "Studios not in any collection") +
+          ` (${report.unmatched.length})`;
+        details.appendChild(sum);
+
+        const body = document.createElement("div");
+        body.style.cssText = "opacity:.7;margin-top:.4em;";
+        body.textContent = report.unmatched.map(item => item.name).join(", ");
+        details.appendChild(body);
+        output.appendChild(details);
+      }
+    } catch (err) {
+      console.error("Studio diagnostics failed:", err);
+      output.textContent = L("studioHubsDiagnosticsError", "Could not analyse studios.");
+    } finally {
+      running = false;
+      button.disabled = false;
+    }
+  });
 
   return section;
 }
@@ -3140,6 +3184,7 @@ export function createStudioHubsPanel(config, labels) {
   });
 
   panel.appendChild(section);
+  panel.appendChild(createStudioHubsDiagnosticsSection(config, labels));
   panel.appendChild(createLibraryHubsSection(config, labels));
   panel.appendChild(becauseYouWatchedSection);
   panel.appendChild(genreSection);
