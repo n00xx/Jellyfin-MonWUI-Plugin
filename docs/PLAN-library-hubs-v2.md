@@ -307,6 +307,22 @@ No hay Jellyfin local en este entorno. La rotación cada 5 minutos y el render d
 solo están verificados de forma estática y por inspección del CSS resultante; la prueba en
 vivo la hace el usuario.
 
+### Seguimiento en v3.7.0.6 — reserva para el hero
+
+El pool era `cardCount + 1` (13) y la fila muestra 12, así que al rotar el hero caía casi
+siempre en un título **ya visible en la fila**: el mismo título dos veces en pantalla. Estaba
+documentado arriba como coste aceptado, pero se corrigió a petición del usuario:
+
+- `LIBRARY_HUBS_HERO_RESERVE = 8` → se descargan `cardCount + 1 + 8` (21) items. La fila
+  sigue mostrando 12; los ~9 restantes son reserva para el hero.
+- `rotateHeroCard` prefiere candidatos **que no estén renderizados en la fila**, leyendo los
+  `data-item-id` del DOM, y cae al pool completo si la fila resulta contener todo (biblioteca
+  con menos títulos que la fila).
+
+Resultado: cada rotación muestra un título nuevo, sin duplicar tarjeta, y sin tocar la fila
+ni el scroll. El límite se subió en los dos sitios (fetch de red y `cachedItems`) para que el
+camino cacheado no devuelva solo 13.
+
 ### Nota sobre el default
 
 El patrón `!== 'false'` activa la feature en instalaciones nuevas y para quien nunca guardó

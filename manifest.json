@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.0.6",
+        "changelog": "v3.7.0.6 (custom fork)\n\nLibrary Collections hero rotation:\n- The rotating hero card no longer repeats a title that is already visible in\n  the row below it. Each row now loads a small reserve of extra titles beyond\n  the ones it displays, and the hero picks from those, so every 5-minute swap\n  shows something new instead of duplicating a card on screen.\n- If a library holds fewer titles than the row shows, the hero falls back to\n  picking from everything available, as before.\n\nNotes:\n- Restart Jellyfin after install\n- Hard refresh (Ctrl + F5) may be required",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.0.6/JMSFusion-3.7.0.6-server.zip",
+        "checksum": "6e6878fec99a3d0ce3498998d60eba83",
+        "timestamp": "2026-07-25T02:35:00.0000000Z"
+      },
+      {
         "version": "3.7.0.5",
         "changelog": "v3.7.0.5 (custom fork)\n\nLibrary Collections improvements:\n- Enabled by default now, together with its hero card.\n- Fixed display order: Peliculas, Series, Doramas, Anime, Donghuas, Shows,\n  Documentales, Collections. Collections always stays last; a newly added\n  library slots in before it. Matching ignores accents, so \"Peliculas\" and\n  \"Peliculas\" with the accent behave the same.\n- Library Collections now sits right after Studio Collections in\n  Home Section Order, unless you reordered it yourself.\n- The large hero card of each category now changes to a random title every\n  5 minutes. Rows are staggered so they do not all change at once, and a\n  row is skipped while you hover it or while its trailer is playing.\n- Trailer playback is disabled in the Collections category only: BoxSets\n  carry no trailer, so it could not work there.\n\nFixes:\n- Fixed the clipped left/right scroll arrows in the Library Collections rows.\n  These rows were missing the container padding and the button styling that\n  every other home row gets, so the arrows were cut off at the edge and\n  rendered flat instead of as circular buttons. Card sizing and the progress\n  bar in these rows now match the rest of the home screen too.\n- The hero card now releases its trailer frame and backdrop image when it is\n  replaced, instead of leaking one of each per swap.\n\nNotes:\n- Restart Jellyfin after install\n- Hard refresh (Ctrl + F5) may be required",
         "targetAbi": "10.11.0.0",
