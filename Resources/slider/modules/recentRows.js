@@ -77,6 +77,8 @@ const LIBRARY_HUBS_DEFAULT_EXCLUDED_NAMES = Object.freeze(["downloads"]);
 const LIBRARY_HUBS_HERO_ROTATE_MS = 5 * 60 * 1000;
 /** Per-row delay so sibling rows do not all swap their hero on the same tick. */
 const LIBRARY_HUBS_HERO_ROTATE_STAGGER_MS = 7 * 1000;
+/** Extra items fetched beyond the row, reserved for the rotating hero to pick from. */
+const LIBRARY_HUBS_HERO_RESERVE = 8;
 const OTHER_RECENT_CARD_COUNT   = UNIFIED_ROW_ITEM_LIMIT;
 const OTHER_CONTINUE_CARD_COUNT = UNIFIED_ROW_ITEM_LIMIT;
 const OTHER_EP_CARD_COUNT       = UNIFIED_ROW_ITEM_LIMIT;
@@ -4081,8 +4083,18 @@ async function fillSectionWithItems({
     if (current?.matches?.(".trailer-active, .video-active")) return;
     try { if (section.matches?.(":hover")) return; } catch {}
 
-    const candidates = heroPool.filter((x) => x?.Id && x.Id !== heroCurrentId);
-    if (!candidates.length) return;
+    // Prefer a title that is not already visible in the row, so the swap reads as
+    // new content instead of duplicating a card. Falls back to the whole pool when
+    // the row happens to hold everything.
+    const eligible = heroPool.filter((x) => x?.Id && x.Id !== heroCurrentId);
+    if (!eligible.length) return;
+    const renderedIds = new Set(
+      Array.from(row.querySelectorAll("[data-item-id]"))
+        .map((el) => el.dataset.itemId)
+        .filter(Boolean)
+    );
+    const offRow = eligible.filter((x) => !renderedIds.has(x.Id));
+    const candidates = offRow.length ? offRow : eligible;
     const pickedIndex = pickRandomIndex(candidates.length);
     const next = candidates[pickedIndex >= 0 ? pickedIndex : 0];
     if (!next?.Id) return;
@@ -5339,6 +5351,9 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
   if (runtimeCfg.enableLibraryHubs) {
     const libraryHubDefs = resolveLibraryHubsSelection();
     const libraryHubCount = runtimeCfg.effectiveLibraryHubsCount;
+    // Fetch past what the row shows so the rotating hero has titles to pick that
+    // are not already on screen. +1 alone means every swap duplicates a card.
+    const libraryHubPoolCount = libraryHubCount + 1 + LIBRARY_HUBS_HERO_RESERVE;
 
     for (let libIndex = 0; libIndex < libraryHubDefs.length; libIndex++) {
       const lib = libraryHubDefs[libIndex];
@@ -5360,13 +5375,13 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
         disableHeroTrailer: isCollections,
         sectionClassName: "library-hub-section",
         fetcher: Object.assign(
-          () => fetchLibraryHubItems(userId, libraryHubCount + 1, lib).then(async (items) => {
+          () => fetchLibraryHubItems(userId, libraryHubPoolCount, lib).then(async (items) => {
             await writeCachedList("library_hub", `lib:${libId}`, items.map(x => x?.Id).filter(Boolean));
             return items;
           }),
           {
             cachedItems: () => loadCachedRowItems("library_hub", `lib:${libId}`, TTL_RECENT_MS, {
-              limit: libraryHubCount + 1,
+              limit: libraryHubPoolCount,
               afterLoad: attachSeriesPosterSourceToEpsAndSeasons
             })
           }
