@@ -212,20 +212,20 @@ a comma value and aborts the view.
 grid + infinite scroll + a params-based query. Phase 4 grows from ~1 h to ~4 h
 and overall complexity moves to **HIGH**.
 
-### Phase 1 — Brand registry
+### Phase 1 — Brand registry `DONE`
 Add `STUDIO_BRANDS`, `normalizeStudioName`, `resolveStudioBrands` to
 `studioHubsShared.js`. Delete both copies of `ALIASES`, `CORE_TOKENS`, `nbase`,
 `strip`, `toks`, `scoreMatch`/`scoreStudioHubMatch`.
 
-### Phase 2 — Studio enumeration
+### Phase 2 — Studio enumeration `DONE`
 Rewrite `fetchStudios` with paging + `userId`.
 
-### Phase 3 — Multi-entity resolution and union queries
+### Phase 3 — Multi-entity resolution and union queries `DONE`
 Rewrite the resolution block at `studioHubs.js:1042-1050`, thread `studioIds[]`
 through `fetchStudioItemsViaUsers`, `chooseBackdropForStudio`,
 `createPreviewButton`, and `setupHoverVideo`.
 
-### Phase 4 — Studio Explorer overlay
+### Phase 4 — Studio Explorer overlay `DONE`
 Forced by the Phase 0 result. Clone `openDirectorExplorer`
 (`genreExplorer.js:492`): same overlay shell, same grid, same
 `IntersectionObserver` infinite scroll, same open/close animation — only the
@@ -234,24 +234,24 @@ it instead of setting an `href`. Keep a single-id `#/list` href as the
 right-click / middle-click fallback so "open in new tab" still does something
 sensible.
 
-### Phase 5 — Rating filter
+### Phase 5 — Rating filter `DONE`
 Drop `MinCommunityRating` from existence/count queries; apply it only when
 picking artwork, and fall back to the unfiltered pool when the filtered pool is
 empty so a card can never vanish silently.
 
-### Phase 6 — Cache invalidation
+### Phase 6 — Cache invalidation `DONE`
 Bump `studioHub_cache_v5` → `_v6`, `studioHub_nameIdMap_v5` → `_v6`,
 `studioHub_backdropMap_v1` → `_v2`. The `nameIdMap` payload shape changes from a
 single studio object to an id list, and it has a 30-day TTL — without the bump
 the deploy looks like it did nothing.
 
-### Phase 7 — Diagnostics panel
+### Phase 7 — Diagnostics panel `DONE`
 Read-only section in `settings/studioHubsPage.js`: per brand, the matched studio
 entity names and the resulting item count, plus a list of studio entities that
 matched no brand. This is the part that answers "so it does not happen again" —
 it turns a silent mis-resolution into something visible.
 
-### Phase 8 — Release v3.7.0.7
+### Phase 8 — Release v3.7.0.7 `DONE`
 Per `jellyfin-plugin-release-process`, in this exact order:
 
 1. bump `<Version>` in `JMSFusion.csproj`
@@ -308,3 +308,34 @@ decision, not an oversight.
 | Phase 8 (release) | 1 h |
 
 **HIGH** — Phase 0 forced the explorer route.
+
+## 9. Outcome
+
+All eight phases landed in v3.7.0.7.
+
+The pure matching logic moved to `Resources/slider/modules/studioBrands.js`
+(no imports, unit-testable) rather than staying in `studioHubsShared.js` — the
+project embeds resources with a `Resources/**/*` wildcard and keeps no asset
+index, so a new module needs no registration. `tests/studioBrands.test.mjs`
+imports it directly and covers resolution, exclusions, primary ranking and
+normalization.
+
+One correction made during review: brand resolution was initially still read
+through the 30-day `MAP_KEY` cache, which would have frozen the mapping for a
+month and re-created the original bug one level up — a new studio, a metadata
+refresh or a registry edit would not have taken effect. Resolution is pure and
+runs over an already-fetched array, so it now runs on every render; `MAP_KEY`
+survives only as an offline fallback for when the studio fetch fails.
+
+Measured on the live 338-studio library:
+
+| Collection | Entities | Titles |
+|---|---|---|
+| Marvel Studios | 2 | 2 → **12** |
+| Walt Disney Pictures | 4 | 10 |
+| DC | 4 | 6 |
+| Warner Bros. Pictures | 2 | 22 |
+| DreamWorks Animation | 3 | — |
+
+Seven studios remain unassigned to any brand (five Japanese broadcasters,
+Paramount+ and Paramount Network) — all of them correctly so.

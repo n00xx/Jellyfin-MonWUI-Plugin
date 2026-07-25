@@ -1086,24 +1086,38 @@ export async function renderStudioHubs() {
     // A hub is a brand, and a brand spans every Jellyfin Studio entity matching
     // its rules — resolving to a single "best" entity is what hid most of the
     // library behind each card.
-    const nameMap = loadCache(MAP_KEY, MAP_TTL) || {};
+    //
+    // Resolution runs every render. It is pure and operates on an array we
+    // already hold, so it costs nothing, and caching it would re-create the bug
+    // one level up: a stored mapping would outlive new studios, metadata
+    // refreshes and registry edits. MAP_KEY is only an offline fallback for
+    // when the studio fetch fails outright.
+    const fallbackMap = loadCache(MAP_KEY, MAP_TTL) || {};
+    const nextMap = {};
     const resolved = [];
+
     for (const desired of wanted) {
       const manualEntry = (manualEntries || []).find(entry => nameKey(entry?.name || entry?.Name) === nameKey(desired)) || null;
       const manualId = String(manualEntry?.studioId || manualEntry?.StudioId || "").trim();
 
-      // Manual entries stay single-entity on purpose: the admin picked one
-      // specific studio, so we honour exactly that.
-      const brand = manualId
-        ? { canonical: desired, studioIds: [manualId], studioNames: [desired], primaryId: manualId }
-        : (nameMap[desired] || resolveStudioBrandEntities(desired, studios));
+      let brand;
+      if (manualId) {
+        // Manual entries stay single-entity on purpose: the admin picked one
+        // specific studio, so we honour exactly that.
+        brand = { canonical: desired, studioIds: [manualId], studioNames: [desired], primaryId: manualId };
+      } else if (studios.length) {
+        brand = resolveStudioBrandEntities(desired, studios);
+      } else {
+        brand = fallbackMap[desired];
+      }
 
       if (brand?.studioIds?.length) {
         resolved.push({ name: desired, brand });
-        nameMap[desired] = brand;
+        nextMap[desired] = brand;
       }
     }
-    saveCache(MAP_KEY, nameMap);
+
+    if (studios.length) saveCache(MAP_KEY, nextMap);
 
     const resolvedNames = new Set(resolved.map(({ name }) => nameKey(name)));
     for (const desired of wanted) {
