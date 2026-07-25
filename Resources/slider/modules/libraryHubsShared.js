@@ -15,6 +15,57 @@ export const LIBRARY_HUBS_DEFAULT_CARD_COUNT = 12;
 
 const LIBRARY_HUBS_CACHE_TTL_MS = 60_000;
 
+/**
+ * Display order for the category rows, by normalized name. Anything not listed
+ * here sorts after these but before the collections row, keeping its original
+ * order, so a newly added library shows up without a code change.
+ */
+const LIBRARY_HUBS_NAME_ORDER = Object.freeze([
+  "peliculas",
+  "series",
+  "doramas",
+  "anime",
+  "donghuas",
+  "shows",
+  "documentales"
+]);
+
+/** Collections always sorts last, whatever the library is named. */
+const LIBRARY_HUBS_COLLECTIONS_RANK = Number.MAX_SAFE_INTEGER;
+const LIBRARY_HUBS_UNLISTED_RANK = LIBRARY_HUBS_NAME_ORDER.length;
+
+/** Strips accents and case so "Peliculas" with or without the accent match. */
+function normalizeCategoryName(name) {
+  return String(name || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+export function isLibraryHubCollections(lib) {
+  if (String(lib?.CollectionType || "").trim().toLowerCase() === "boxsets") return true;
+  return normalizeCategoryName(lib?.Name) === "collections";
+}
+
+function getLibraryHubOrderRank(lib) {
+  if (isLibraryHubCollections(lib)) return LIBRARY_HUBS_COLLECTIONS_RANK;
+  const index = LIBRARY_HUBS_NAME_ORDER.indexOf(normalizeCategoryName(lib?.Name));
+  return index >= 0 ? index : LIBRARY_HUBS_UNLISTED_RANK;
+}
+
+/**
+ * Orders the category rows for display. Shared by the settings panel and the
+ * home rows so the two never disagree; returns a new array rather than sorting
+ * the caller's in place.
+ */
+export function sortLibraryHubCategories(categories) {
+  return (Array.isArray(categories) ? categories : [])
+    .map((lib, index) => ({ lib, index, rank: getLibraryHubOrderRank(lib) }))
+    .sort((a, b) => (a.rank - b.rank) || (a.index - b.index))
+    .map((entry) => entry.lib);
+}
+
 let __cache = { at: 0, items: null };
 
 function readJsonArray(key) {
@@ -85,8 +136,8 @@ export async function fetchLibraryHubCategories({ force = false } = {}) {
       }))
       .filter((x) => !isLibraryHubExcluded(x.Name, excluded));
 
-    __cache = { at: Date.now(), items: categories };
-    return categories;
+    __cache = { at: Date.now(), items: sortLibraryHubCategories(categories) };
+    return __cache.items;
   } catch (e) {
     console.warn("libraryHubs: category fetch error:", e);
     return Array.isArray(__cache.items) ? __cache.items : [];

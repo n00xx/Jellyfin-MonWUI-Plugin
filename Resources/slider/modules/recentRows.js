@@ -4,6 +4,7 @@ import { getLanguageLabels } from "../language/index.js";
 import { attachMiniPosterHover } from "./studioHubsUtils.js";
 import { REOPEN_COOLDOWN_MS, OPEN_HOVER_DELAY_MS } from "./hoverTrailerModal.js";
 import { createTrailerIframe, formatOfficialRatingLabel } from "./utils.js";
+import { isLibraryHubCollections, sortLibraryHubCategories } from "./libraryHubsShared.js";
 import {
   cleanupManagedImage,
   progressivelyRenderCardRow,
@@ -72,6 +73,10 @@ const TOP10_ROW_CARD_COUNT = 10;
 const ENABLE_OTHER_LIB_ROWS = !!config.enableOtherLibRows;
 const DEFAULT_LIBRARY_HUBS_COUNT = 12;
 const LIBRARY_HUBS_DEFAULT_EXCLUDED_NAMES = Object.freeze(["downloads"]);
+/** How often each Library Collections row re-picks its hero card. */
+const LIBRARY_HUBS_HERO_ROTATE_MS = 5 * 60 * 1000;
+/** Per-row delay so sibling rows do not all swap their hero on the same tick. */
+const LIBRARY_HUBS_HERO_ROTATE_STAGGER_MS = 7 * 1000;
 const OTHER_RECENT_CARD_COUNT   = UNIFIED_ROW_ITEM_LIMIT;
 const OTHER_CONTINUE_CARD_COUNT = UNIFIED_ROW_ITEM_LIMIT;
 const OTHER_EP_CARD_COUNT       = UNIFIED_ROW_ITEM_LIMIT;
@@ -375,6 +380,9 @@ function cleanupManagedRecentRowsSections(sectionKey = "recentRows", root = getA
       section.querySelectorAll(".personal-recs-row").forEach((row) => {
         try { row.dispatchEvent(new CustomEvent("jms:cleanup")); } catch {}
       });
+      // Section-level listeners own the hero rotation timer; without this the
+      // interval outlives the section on every home remount.
+      try { section.dispatchEvent(new CustomEvent("jms:cleanup")); } catch {}
     } catch {}
     try { section.remove(); } catch {}
   }
@@ -1682,11 +1690,12 @@ function getLibraryHubsHiddenIds() {
 function resolveLibraryHubsSelection() {
   const excluded = getLibraryHubsExcludedNames();
   const hidden = getLibraryHubsHiddenIds();
-  return (STATE.allLibs || []).filter(lib =>
+  const visible = (STATE.allLibs || []).filter(lib =>
     lib?.Id &&
     !excluded.has(String(lib.Name || "").trim().toLowerCase()) &&
     !hidden.has(String(lib.Id))
   );
+  return sortLibraryHubCategories(visible);
 }
 
 function buildLibraryHubSeeAllHash(lib) {
@@ -2763,7 +2772,8 @@ function createRecommendationCard(item, serverId, {
   aboveFold = false,
   showProgress = false,
   variant = "default",
-  rank = null
+  rank = null,
+  disableHoverPreview = false
 } = {}) {
   const { itemId, itemName } = primeItemIdentity(item);
   const card = document.createElement("div");
@@ -3024,7 +3034,7 @@ function createRecommendationCard(item, serverId, {
     ? (getConfig()?.globalPreviewMode === "studioMini" ? "studioMini" : "modal")
     : HOVER_MODE;
 
-  if (!isTrailerVariant) {
+  if (!isTrailerVariant && !disableHoverPreview) {
     setTimeout(() => {
       if (card.isConnected) attachPreviewByMode(card, { ...item, Id: itemId, Name: itemName }, mode);
     }, 500);
@@ -3193,7 +3203,10 @@ async function resolveHeroPreviewItemId(item) {
   return itemId;
 }
 
-async function createRowHeroCard(item, serverId, labelText, { showProgress = false } = {}) {
+async function createRowHeroCard(item, serverId, labelText, {
+  showProgress = false,
+  disableTrailer = false
+} = {}) {
   const { itemId } = primeItemIdentity(item);
   const hero = document.createElement("div");
   hero.className = "dir-row-hero";
@@ -3334,7 +3347,9 @@ async function createRowHeroCard(item, serverId, labelText, { showProgress = fal
     console.warn("recentRows hero bg hydrate failed:", e);
   }
 
-  try {
+  // BoxSets own no media and carry no RemoteTrailers, so the trailer surface
+  // cannot resolve anything for them and is skipped instead of failing.
+  if (!disableTrailer) try {
     const backdropImg = hero.querySelector(".dir-row-hero-bg");
     const RemoteTrailers =
       posterSource.RemoteTrailers ||
@@ -3973,6 +3988,10 @@ async function fillSectionWithItems({
   showProgress,
   onSeeAll,
   randomHero = false,
+  heroRotateMs = 0,
+  heroRotateOffsetMs = 0,
+  disableHoverPreview = false,
+  disableHeroTrailer = false,
   hideHero = false,
   sectionClassName = "",
   rowClassName = "",
@@ -4013,6 +4032,10 @@ async function fillSectionWithItems({
   section.__renderToken = __renderToken;
   let __renderPass = 0;
   let progressiveHandle = null;
+  let heroPool = null;
+  let heroCurrentId = "";
+  let heroRotateTimer = null;
+  let heroRotateStartTimer = null;
 
   const isRenderCurrent = () => (
     section.__renderToken === __renderToken &&
@@ -4025,6 +4048,78 @@ async function fillSectionWithItems({
     try { progressiveHandle?.cancel?.(); } catch {}
     progressiveHandle = null;
   };
+
+  const stopHeroRotation = () => {
+    if (heroRotateTimer) { clearInterval(heroRotateTimer); heroRotateTimer = null; }
+    if (heroRotateStartTimer) { clearTimeout(heroRotateStartTimer); heroRotateStartTimer = null; }
+  };
+
+  /**
+   * Empties the hero host, giving the outgoing hero its jms:cleanup first so the
+   * trailer iframe and managed backdrop image it owns are released. Without this
+   * every hero swap leaks both.
+   */
+  const releaseHeroHost = () => {
+    try {
+      heroHost.querySelectorAll(".dir-row-hero").forEach((el) => {
+        try { el.dispatchEvent(new CustomEvent("jms:cleanup")); } catch {}
+      });
+    } catch {}
+    heroHost.innerHTML = "";
+  };
+
+  /**
+   * Swaps only the hero card, leaving the row alone so the user's scroll position
+   * survives. Re-picks from the already fetched pool, so no network work.
+   */
+  const rotateHeroCard = async () => {
+    if (!section.isConnected) { stopHeroRotation(); return; }
+    if (!Array.isArray(heroPool) || heroPool.length < 2) return;
+    if (document.hidden || !isRenderCurrent()) return;
+    // A trailer can start without hover, so the hover guard alone is not enough.
+    const current = heroHost.querySelector(".dir-row-hero");
+    if (current?.matches?.(".trailer-active, .video-active")) return;
+    try { if (section.matches?.(":hover")) return; } catch {}
+
+    const candidates = heroPool.filter((x) => x?.Id && x.Id !== heroCurrentId);
+    if (!candidates.length) return;
+    const pickedIndex = pickRandomIndex(candidates.length);
+    const next = candidates[pickedIndex >= 0 ? pickedIndex : 0];
+    if (!next?.Id) return;
+
+    let hero;
+    try {
+      hero = await createRowHeroCard(next, STATE.serverId, heroLabel, {
+        showProgress,
+        disableTrailer: disableHeroTrailer
+      });
+    } catch (e) {
+      console.warn("recentRows: hero rotation failed:", e);
+      return;
+    }
+    if (!section.isConnected || !isRenderCurrent()) return;
+
+    releaseHeroHost();
+    heroCurrentId = next.Id;
+    heroHost.appendChild(hero);
+    queueEnterAnimation(hero);
+  };
+
+  const startHeroRotation = () => {
+    if (!(heroRotateMs > 0) || !useHero) return;
+    if (heroRotateTimer || heroRotateStartTimer) return;
+    // Offset staggers sibling rows so they do not all swap on the same tick.
+    const offset = Math.max(0, heroRotateOffsetMs | 0);
+    heroRotateStartTimer = window.setTimeout(() => {
+      heroRotateStartTimer = null;
+      heroRotateTimer = window.setInterval(() => { rotateHeroCard(); }, heroRotateMs);
+    }, heroRotateMs + offset);
+  };
+
+  section.addEventListener("jms:cleanup", () => {
+    stopHeroRotation();
+    releaseHeroHost();
+  }, { once: true });
 
   const finalizeScroller = () => {
     setupScroller(row);
@@ -4071,12 +4166,19 @@ async function fillSectionWithItems({
       ? pool.filter((x) => x?.Id && x.Id !== best.Id)
       : pool.slice();
 
-    heroHost.innerHTML = "";
+    releaseHeroHost();
     if (useHero && best) {
-      const hero = await createRowHeroCard(best, STATE.serverId, heroLabel, { showProgress });
+      const hero = await createRowHeroCard(best, STATE.serverId, heroLabel, {
+        showProgress,
+        disableTrailer: disableHeroTrailer
+      });
       if (!isPassCurrent()) return false;
+      heroCurrentId = best.Id || "";
       heroHost.appendChild(hero);
       queueEnterAnimation(hero);
+      // Rotation re-picks from this pool, so it needs no further network work.
+      heroPool = pool;
+      startHeroRotation();
     }
 
     row.innerHTML = "";
@@ -4114,7 +4216,8 @@ async function fillSectionWithItems({
           aboveFold: index < Math.max(1, Math.min(aboveFoldLimit, IS_MOBILE ? 2 : 4)),
           showProgress,
           variant: cardVariant,
-          rank: cardVariant === "top10" ? (index + 1) : null
+          rank: cardVariant === "top10" ? (index + 1) : null,
+          disableHoverPreview
         }),
         onAppend: () => {
           if (!scrollerReady) {
@@ -5237,9 +5340,12 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
     const libraryHubDefs = resolveLibraryHubsSelection();
     const libraryHubCount = runtimeCfg.effectiveLibraryHubsCount;
 
-    for (const lib of libraryHubDefs) {
+    for (let libIndex = 0; libIndex < libraryHubDefs.length; libIndex++) {
+      const lib = libraryHubDefs[libIndex];
       const libId = lib.Id;
       const libName = lib.Name || config.languageLabels.studioHubLibraryFallbackName || "Library";
+      // Collections rows hold BoxSets, which have no trailer to play.
+      const isCollections = isLibraryHubCollections(lib);
       pushPlan(libraryHubPlans, () => buildManagedSection({
         titleText: libName,
         badgeType: "new",
@@ -5247,6 +5353,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
         cardCount: libraryHubCount,
         showProgress: false,
         hideHero: runtimeCfg.showLibraryHubsHeroCards !== true,
+        randomHero: true,
+        heroRotateMs: LIBRARY_HUBS_HERO_ROTATE_MS,
+        heroRotateOffsetMs: libIndex * LIBRARY_HUBS_HERO_ROTATE_STAGGER_MS,
+        disableHoverPreview: isCollections,
+        disableHeroTrailer: isCollections,
         sectionClassName: "library-hub-section",
         fetcher: Object.assign(
           () => fetchLibraryHubItems(userId, libraryHubCount + 1, lib).then(async (items) => {
