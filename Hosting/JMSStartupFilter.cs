@@ -137,6 +137,20 @@ namespace Jellyfin.Plugin.JMSFusion
                         }
 
                         var outBytes = Encoding.UTF8.GetBytes(html);
+
+                        // Accept-Encoding was forced to identity above so Jellyfin would hand us
+                        // HTML we could patch, and this middleware sits upstream of the server's
+                        // own compression — so without re-encoding here, index.html goes out
+                        // uncompressed on every page load, including the ~41 KB inline bootstrap
+                        // this plugin injects into it.
+                        var encoding = PickResponseEncoding(originalAcceptEncoding);
+                        if (encoding is not null)
+                        {
+                            outBytes = CompressBytes(outBytes, encoding);
+                            ctx.Response.Headers["Content-Encoding"] = encoding;
+                            ctx.Response.Headers.Append("Vary", "Accept-Encoding");
+                        }
+
                         ctx.Response.ContentLength = outBytes.Length;
 
                         await originalBody.WriteAsync(outBytes, 0, outBytes.Length, ctx.RequestAborted);
@@ -166,6 +180,43 @@ namespace Jellyfin.Plugin.JMSFusion
             };
         }
 
+        /// <summary>
+        /// Picks an encoding from the client's original Accept-Encoding, or null for identity.
+        /// </summary>
+        private static string? PickResponseEncoding(string acceptEncoding)
+        {
+            if (string.IsNullOrEmpty(acceptEncoding)) return null;
+            if (acceptEncoding.Contains("br", StringComparison.OrdinalIgnoreCase)) return "br";
+            if (acceptEncoding.Contains("gzip", StringComparison.OrdinalIgnoreCase)) return "gzip";
+            return null;
+        }
+
+        /// <summary>
+        /// Compresses the patched index.html. Unlike the plugin's static assets this is rebuilt
+        /// per request, so it uses Fastest rather than Optimal.
+        /// </summary>
+        private static byte[] CompressBytes(byte[] source, string encoding)
+        {
+            using var output = new MemoryStream();
+
+            if (string.Equals(encoding, "br", StringComparison.Ordinal))
+            {
+                using (var brotli = new BrotliStream(output, CompressionLevel.Fastest, leaveOpen: true))
+                {
+                    brotli.Write(source, 0, source.Length);
+                }
+            }
+            else
+            {
+                using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true))
+                {
+                    gzip.Write(source, 0, source.Length);
+                }
+            }
+
+            return output.ToArray();
+        }
+
         private static bool IsPluginAssetRequest(HttpContext ctx)
         {
             var path = ctx.Request.Path;
@@ -181,89 +232,6 @@ namespace Jellyfin.Plugin.JMSFusion
                    p.EndsWith("/web/index.html") ||
                    p.EndsWith("/web/index.html.gz") ||
                    p.EndsWith("/web/index.html.br");
-        }
-
-        private static async Task<(string html, string encodingUsed, string sourceInfo, bool alreadyInjected)>
-            LoadIndexHtmlAsync(IWebHostEnvironment env, HttpContext ctx, ILogger logger)
-        {
-            var fp = env.WebRootFileProvider ?? new NullFileProvider();
-            var acceptEnc = (ctx.Request.Headers["Accept-Encoding"].ToString() ?? string.Empty).ToLowerInvariant();
-            var wantsBr   = acceptEnc.Contains("br");
-            var wantsGz   = acceptEnc.Contains("gzip");
-
-            var fileBr = fp.GetFileInfo("index.html.br");
-            var fileGz = fp.GetFileInfo("index.html.gz");
-            var fileHt = fp.GetFileInfo("index.html");
-
-            IFileInfo pick = fileHt; string enc = ""; string src = "index.html";
-
-            if (wantsBr && fileBr.Exists) { pick = fileBr; enc = "br";   src = "index.html.br"; }
-            else if (wantsGz && fileGz.Exists) { pick = fileGz; enc = "gzip"; src = "index.html.gz"; }
-            else if (!fileHt.Exists)
-            {
-                var root = DetectWebRootPhysicalCached();
-                if (root is not null)
-                {
-                    var pf = new PhysicalFileProvider(root);
-                    var pBr = pf.GetFileInfo("index.html.br");
-                    var pGz = pf.GetFileInfo("index.html.gz");
-                    var pHt = pf.GetFileInfo("index.html");
-                    if (wantsBr && pBr.Exists) { pick = pBr; enc = "br";   src = pBr.PhysicalPath ?? "index.html.br"; }
-                    else if (wantsGz && pGz.Exists) { pick = pGz; enc = "gzip"; src = pGz.PhysicalPath ?? "index.html.gz"; }
-                    else if (pHt.Exists) { pick = pHt; enc = ""; src = pHt.PhysicalPath ?? "index.html"; }
-                }
-            }
-
-            if (!pick.Exists)
-                throw new FileNotFoundException("Jellyfin web index not found (html/gz/br).");
-
-            string html;
-            using (var s = pick.CreateReadStream())
-            {
-                if (enc == "br")
-                {
-                    using var br = new BrotliStream(s, CompressionMode.Decompress, leaveOpen: false);
-                    using var r  = new StreamReader(br, Encoding.UTF8, true);
-                    html = await r.ReadToEndAsync();
-                }
-                else if (enc == "gzip")
-                {
-                    using var gz = new GZipStream(s, CompressionMode.Decompress, leaveOpen: false);
-                    using var r  = new StreamReader(gz, Encoding.UTF8, true);
-                    html = await r.ReadToEndAsync();
-                }
-                else
-                {
-                    using var r = new StreamReader(s, Encoding.UTF8, true);
-                    html = await r.ReadToEndAsync();
-                }
-            }
-
-            var already = html.IndexOf("<!-- SL-INJECT BEGIN -->", StringComparison.OrdinalIgnoreCase) >= 0;
-            return (html, enc, src, already);
-        }
-
-        private static async Task WriteEncodedAsync(Stream output, string html, string encoding, System.Threading.CancellationToken abort)
-        {
-            var bytes = Encoding.UTF8.GetBytes(html);
-
-            if (encoding == "br")
-            {
-                using var brOut = new BrotliStream(output, CompressionLevel.Fastest, leaveOpen: true);
-                await brOut.WriteAsync(bytes, 0, bytes.Length, abort);
-                await brOut.FlushAsync(abort);
-            }
-            else if (encoding == "gzip")
-            {
-                using var gzOut = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true);
-                await gzOut.WriteAsync(bytes, 0, bytes.Length, abort);
-                await gzOut.FlushAsync(abort);
-            }
-            else
-            {
-                await output.WriteAsync(bytes, 0, bytes.Length, abort);
-                await output.FlushAsync(abort);
-            }
         }
 
         private static string? DetectWebRootPhysicalCached()

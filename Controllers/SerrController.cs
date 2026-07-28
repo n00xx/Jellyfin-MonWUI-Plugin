@@ -3617,20 +3617,45 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
                 {
                     fetchTask = FetchArrRecords(baseUrl, apiKey, serviceName, pathAndQuery, CancellationToken.None);
                     ArrRecordsInFlight[key] = fetchTask;
+
+                    // Bookkeeping is bound to the fetch itself rather than to whichever caller
+                    // happens to await it. Doing it in the awaiter meant a failed fetch never got
+                    // removed from ArrRecordsInFlight — the faulted task stayed in the dictionary
+                    // and every later request for that key awaited it and rethrew immediately,
+                    // poisoning the key until the server restarted. A caller that cancelled had
+                    // the same effect, so one client disconnecting could break the endpoint for
+                    // everyone.
+                    _ = TrackArrRecordsFetch(key, fetchTask, cacheMs);
                 }
             }
 
             if (fetchTask is null) return new List<JsonElement>();
-            return await AwaitAndCacheArrRecords(key, fetchTask, cacheMs, cancellationToken);
+
+            // WaitAsync observes this caller's cancellation without disturbing the shared fetch.
+            var records = await fetchTask.WaitAsync(cancellationToken);
+            return records.ToList();
         }
 
-        private static async Task<List<JsonElement>> AwaitAndCacheArrRecords(
+        /// <summary>
+        /// Clears the in-flight slot once a fetch settles, and caches the payload if it succeeded.
+        /// </summary>
+        private static async Task TrackArrRecordsFetch(
             string key,
             Task<List<JsonElement>> fetchTask,
-            int cacheMs,
-            CancellationToken cancellationToken)
+            int cacheMs)
         {
-            var records = await fetchTask.WaitAsync(cancellationToken);
+            List<JsonElement>? records = null;
+
+            try
+            {
+                records = await fetchTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                // The failure is surfaced to the callers awaiting fetchTask; this continuation
+                // exists only to make sure the slot is released either way.
+            }
+
             lock (ArrRecordsCacheRoot)
             {
                 if (ArrRecordsInFlight.TryGetValue(key, out var currentFetch) && ReferenceEquals(currentFetch, fetchTask))
@@ -3638,13 +3663,16 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
                     ArrRecordsInFlight.Remove(key);
                 }
 
+                if (records is null)
+                {
+                    return;
+                }
+
                 ArrRecordsCache[key] = new ArrRecordCacheEntry(
                     NowMs() + Math.Max(500, cacheMs),
                     records.Select(item => item.Clone()).ToList());
                 PruneArrRecordsCache(NowMs());
             }
-
-            return records;
         }
 
         private static bool ShouldCheckArrDownload(SerrRequestEntry entry)
