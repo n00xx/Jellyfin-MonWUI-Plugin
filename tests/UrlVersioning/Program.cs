@@ -122,6 +122,32 @@ foreach (var (label, importer, specifier) in escapes)
     Check($"escape reaches runtime api from {label}", after, "/Plugins/JMSFusion/runtime/api.js");
 }
 
+// RuntimeModules are served from /Plugins/JMSFusion/runtime/ and reach back into the slider
+// graph. Those specifiers must be realigned onto the versioned segment, or shared-state modules
+// (config, the IndexedDB slider cache, the player) get instantiated twice from two URLs.
+var alignMethod = assetVersioning.GetMethod("AlignRuntimeModuleSpecifiers", BindingFlags.Public | BindingFlags.Static)!;
+string Align(string source) => (string)alignMethod.Invoke(null, new object[] { source })!;
+
+const string runtimeUrl = "/Plugins/JMSFusion/runtime/api.js";
+foreach (var specifier in new[]
+         {
+             "../../../slider/modules/config.js",
+             "../../../slider/modules/jfUrl.js",
+             "../../../slider/modules/sliderCache.js",
+             "../../../slider/modules/player/main.js",
+         })
+{
+    var aligned = Align(specifier);
+    var fromRuntime = Resolve(runtimeUrl, aligned);
+    var fromSlider = Resolve(entry, "./" + specifier["../../../slider/".Length..]);
+
+    Check($"runtime shares one instance of {Path.GetFileName(specifier)}", fromRuntime, fromSlider);
+    Check($"runtime specifier normalizes: {Path.GetFileName(specifier)}",
+        Normalize(fromRuntime).Path, "/slider/" + specifier["../../../slider/".Length..]);
+}
+
+Check("alignment leaves unrelated source untouched", Align("const a = './modules/x.js';"), "const a = './modules/x.js';");
+
 // Legacy and edge forms.
 Check("legacy /web/slider/x", Normalize("/web/slider/src/settings.css").Path, "/slider/src/settings.css");
 Check("legacy not immutable", Normalize("/web/slider/src/settings.css").Versioned, false);

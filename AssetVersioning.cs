@@ -61,6 +61,26 @@ namespace Jellyfin.Plugin.JMSFusion
             return string.Concat(path.AsSpan(0, idx + 1), VersionedSegment, path.AsSpan(idx + marker.Length - 1));
         }
 
+        /// <summary>
+        /// Rewrites the slider specifiers inside a runtime module so they point at the versioned
+        /// segment.
+        /// </summary>
+        /// <remarks>
+        /// <c>RuntimeModules/api.js</c> is served from <c>/Plugins/JMSFusion/runtime/</c> and
+        /// reaches back into the slider graph with specifiers like
+        /// <c>../../../slider/modules/config.js</c>. Left alone, those would resolve to the
+        /// unversioned <c>/slider/...</c> URL while the slider graph itself loads
+        /// <c>/slider~v-{version}/...</c> — two different URLs, and therefore two separate
+        /// instances of modules that own shared state (config, the IndexedDB slider cache, the
+        /// player). Rewriting keeps the whole application on one copy of every module.
+        /// </remarks>
+        public static string AlignRuntimeModuleSpecifiers(string source)
+        {
+            return string.IsNullOrEmpty(source)
+                ? source
+                : source.Replace("../slider/", $"../{VersionedSegment}/", StringComparison.Ordinal);
+        }
+
         public static string AppendVersionQuery(string path)
         {
             if (string.IsNullOrWhiteSpace(path))

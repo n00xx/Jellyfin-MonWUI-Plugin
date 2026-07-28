@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 
 namespace Jellyfin.Plugin.JMSFusion.Controllers
 {
@@ -18,6 +20,14 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
                 ["api"] = "RuntimeModules.api.js",
                 ["storage-preload"] = "RuntimeModules.storagePreload.js"
             };
+
+        /// <summary>
+        /// Rendered script bodies, keyed by script name. The sources are embedded in the assembly
+        /// and the rewrite depends only on the assembly version, so both are fixed for the
+        /// lifetime of the process and there is no reason to redo either per request.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, byte[]> RenderedScripts =
+            new(StringComparer.OrdinalIgnoreCase);
 
         private readonly ILogger<JMSFusionRuntimeController> _logger;
 
@@ -41,21 +51,27 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
                     return StatusCode(304);
                 }
 
-                var asm = typeof(JMSFusionPlugin).Assembly;
-                var ns = typeof(JMSFusionPlugin).Namespace;
-                var resourceName = $"{ns}.{resourceSuffix}";
-
-                using var stream = asm.GetManifestResourceStream(resourceName);
-                if (stream == null)
+                if (!RenderedScripts.TryGetValue(name, out var body))
                 {
-                    _logger.LogWarning("Runtime script resource not found: {ResourceName}", resourceName);
-                    return NotFound();
+                    var asm = typeof(JMSFusionPlugin).Assembly;
+                    var ns = typeof(JMSFusionPlugin).Namespace;
+                    var resourceName = $"{ns}.{resourceSuffix}";
+
+                    using var stream = asm.GetManifestResourceStream(resourceName);
+                    if (stream == null)
+                    {
+                        _logger.LogWarning("Runtime script resource not found: {ResourceName}", resourceName);
+                        return NotFound();
+                    }
+
+                    using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                    var source = AssetVersioning.AlignRuntimeModuleSpecifiers(reader.ReadToEnd());
+
+                    body = Encoding.UTF8.GetBytes(source);
+                    RenderedScripts[name] = body;
                 }
 
-                using var ms = new MemoryStream();
-                stream.CopyTo(ms);
-
-                return File(ms.ToArray(), "application/javascript; charset=utf-8");
+                return File(body, "application/javascript; charset=utf-8");
             }
             catch (Exception ex)
             {
