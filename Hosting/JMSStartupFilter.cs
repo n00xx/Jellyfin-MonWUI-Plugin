@@ -32,6 +32,12 @@ namespace Jellyfin.Plugin.JMSFusion
 
                 app.UseMiddleware<PathRewriteMiddleware>();
 
+                // Scoped to the plugin's own asset paths: this filter runs ahead of Jellyfin's
+                // pipeline, so compressing everything here would wrap responses the server
+                // already handles itself. PathRewriteMiddleware runs first so that
+                // /web/slider/... has been normalised to /slider/... by the time we match.
+                app.UseWhen(IsPluginAssetRequest, branch => branch.UseMiddleware<AssetCompressionMiddleware>());
+
                 var asm = typeof(JMSStartupFilter).Assembly;
                 var embedded = new ManifestEmbeddedFileProvider(asm, "Resources/slider");
                 app.UseStaticFiles(new StaticFileOptions
@@ -158,6 +164,13 @@ namespace Jellyfin.Plugin.JMSFusion
 
                 next(app);
             };
+        }
+
+        private static bool IsPluginAssetRequest(HttpContext ctx)
+        {
+            var path = ctx.Request.Path;
+            return path.StartsWithSegments("/slider")
+                || path.StartsWithSegments("/Plugins/JMSFusion", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsIndexRequest(PathString path)

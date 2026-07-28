@@ -7,10 +7,59 @@ namespace Jellyfin.Plugin.JMSFusion
 {
     internal static class AssetVersioning
     {
-        private const string CacheControlValue = "public, max-age=0, must-revalidate";
+        private const string RevalidateCacheControl = "public, max-age=0, must-revalidate";
+        private const string ImmutableCacheControl = "public, max-age=31536000, immutable";
+
+        /// <summary>
+        /// Marks a request that arrived through the versioned <c>/slider/v-{version}/</c> prefix,
+        /// so the response may be cached immutably. Set by <c>PathRewriteMiddleware</c>.
+        /// </summary>
+        internal const string VersionedRequestItemKey = "JMSFusion.VersionedAssetRequest";
+
+        /// <summary>
+        /// Separates the <c>slider</c> segment from its version token. <c>~</c> is an unreserved
+        /// URL character and cannot appear in an asset name, so it cannot collide with a real path.
+        /// </summary>
+        internal const string VersionMarker = "~v-";
+
         private static readonly string s_assetVersion = BuildAssetVersion();
+        private static readonly string s_versionedSegment = $"slider{VersionMarker}{s_assetVersion}";
 
         public static string AssetVersion => s_assetVersion;
+
+        /// <summary>
+        /// The <c>slider</c> path segment carrying the current asset version, e.g.
+        /// <c>slider~v-3.7.0.8-a1b2c3d4e5f6</c>.
+        /// </summary>
+        public static string VersionedSegment => s_versionedSegment;
+
+        /// <summary>
+        /// Versions a slider asset URL by renaming the <c>slider</c> segment rather than adding
+        /// one: <c>../slider/main.js</c> becomes <c>../slider~v-{version}/main.js</c>.
+        /// </summary>
+        /// <remarks>
+        /// Renaming rather than nesting is load-bearing. ES modules resolve relative specifiers
+        /// against the importing module's URL, so keeping the path depth unchanged lets the whole
+        /// transitive graph inherit the version with no edits to any <c>import</c> statement —
+        /// including the 45 specifiers that climb out of the slider root to reach
+        /// <c>../Plugins/JMSFusion/runtime/*</c>, which an extra path segment would break.
+        /// </remarks>
+        public static string ApplyVersionedSegment(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return path ?? string.Empty;
+            }
+
+            const string marker = "/slider/";
+            var idx = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+            {
+                return AppendVersionQuery(path);
+            }
+
+            return string.Concat(path.AsSpan(0, idx + 1), VersionedSegment, path.AsSpan(idx + marker.Length - 1));
+        }
 
         public static string AppendVersionQuery(string path)
         {
@@ -1317,7 +1366,7 @@ html[data-jms-custom-splash="1"][data-jms-custom-splash-hidden="1"] #${LOGO_ID} 
         public static bool TryHandleConditionalGet(HttpContext context, string cacheKey)
         {
             var etag = BuildEtag(cacheKey);
-            ApplyHeaders(context.Response.Headers, etag);
+            ApplyHeaders(context.Response.Headers, etag, IsVersionedRequest(context));
 
             var ifNoneMatch = context.Request.Headers[HeaderNames.IfNoneMatch].ToString();
             if (!string.IsNullOrWhiteSpace(ifNoneMatch) &&
@@ -1334,12 +1383,34 @@ html[data-jms-custom-splash="1"][data-jms-custom-splash-hidden="1"] #${LOGO_ID} 
         {
             var cacheKey = context.Context.Request.Path.Value ?? string.Empty;
             var etag = BuildEtag(cacheKey);
-            ApplyHeaders(context.Context.Response.Headers, etag);
+            ApplyHeaders(context.Context.Response.Headers, etag, IsVersionedRequest(context.Context));
         }
 
-        private static void ApplyHeaders(IHeaderDictionary headers, string etag)
+        /// <summary>
+        /// A request may be cached immutably when it is pinned to the current asset version,
+        /// either by the <c>/slider/v-{version}/</c> path prefix (modules, which inherit it
+        /// through relative import resolution) or by a <c>?v={version}</c> query, which
+        /// <c>assetLinks.js</c> attaches to absolute CSS/image URLs it builds by hand.
+        /// Anything else keeps revalidating, so an upgrade is never masked by a stale cache.
+        /// </summary>
+        private static bool IsVersionedRequest(HttpContext context)
         {
-            headers[HeaderNames.CacheControl] = CacheControlValue;
+            if (context.Items.ContainsKey(VersionedRequestItemKey))
+            {
+                return true;
+            }
+
+            if (!context.Request.Query.TryGetValue("v", out var versionValues))
+            {
+                return false;
+            }
+
+            return string.Equals(versionValues.ToString(), AssetVersion, StringComparison.Ordinal);
+        }
+
+        private static void ApplyHeaders(IHeaderDictionary headers, string etag, bool immutable)
+        {
+            headers[HeaderNames.CacheControl] = immutable ? ImmutableCacheControl : RevalidateCacheControl;
             headers[HeaderNames.ETag] = etag;
         }
 

@@ -18,8 +18,8 @@ namespace Jellyfin.Plugin.JMSFusion
             sb.AppendLine(BeginMark);
             sb.AppendLine(AssetVersioning.BuildBootstrapScript());
             sb.AppendLine($@"<script type=""module"" src=""{AssetVersioning.AppendVersionQuery("../Plugins/JMSFusion/runtime/storage-preload.js")}""></script>");
-            sb.AppendLine($@"<script type=""module"" src=""{AssetVersioning.AppendVersionQuery("../slider/main.js")}""></script>");
-            sb.AppendLine($@"<script type=""module"" src=""{AssetVersioning.AppendVersionQuery("../slider/modules/player/main.js")}""></script>");
+            sb.AppendLine($@"<script type=""module"" src=""{AssetVersioning.ApplyVersionedSegment("../slider/main.js")}""></script>");
+            sb.AppendLine($@"<script type=""module"" src=""{AssetVersioning.ApplyVersionedSegment("../slider/modules/player/main.js")}""></script>");
             sb.AppendLine(EndMark);
             return sb.ToString();
         }

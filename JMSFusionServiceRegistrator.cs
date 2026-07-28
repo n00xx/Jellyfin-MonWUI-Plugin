@@ -13,6 +13,7 @@ namespace Jellyfin.Plugin.JMSFusion
             services.AddSingleton<TrailerAutomationService>();
             services.AddSingleton<CinemaPreRollCacheService>();
             services.AddSingleton<ScopedCacheJsonService>();
+            services.AddSingleton<AssetCompressionCache>();
             services.AddTransient<IStartupFilter, JMSStartupFilter>();
         }
     }
