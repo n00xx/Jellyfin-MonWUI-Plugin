@@ -1,6 +1,32 @@
 import { fetchItemDetailsFull, fetchItemsBulk, getEmbyHeaders, getLastPlayNowBlockReason, getSessionInfo, makeApiRequest, playNow, updateFavoriteStatus } from "../../Plugins/JMSFusion/runtime/api.js";
 import { CollectionCacheDB } from "./collectionCacheDb.js";
 import { getConfig } from "./config.js";
+import {
+  getCachedWatchlistMembership,
+  getItemTypeName,
+  getWatchlistButtonText,
+  getWatchlistButtonTitle,
+  getWatchlistLabel as L,
+  getWatchlistTabKey,
+  getWatchlistToast,
+  isCollectionItem,
+  isMusicAlbumItem,
+  isMusicItem,
+  isSeriesItem,
+  normalizeText as text,
+  publishWatchlistMembership
+} from "./watchlistShared.js";
+
+// Re-exported so the watchlist's public surface is unchanged for callers that do not need the
+// lighter module.
+export {
+  getCachedWatchlistMembership,
+  getWatchlistButtonText,
+  getWatchlistButtonTitle,
+  getWatchlistTabKey,
+  getWatchlistToast,
+  isMusicAlbumItem
+};
 import { withServer } from "./jfUrl.js";
 import { ensureStudioHubLogoFromTmdb, ensureStudioHubManualEntry, JMS_STUDIO_HUB_MANUAL_ENTRY_ADDED_EVENT } from "./studioHubsShared.js";
 import { showNotification } from "./player/ui/notification.js";
@@ -151,17 +177,6 @@ function labels() {
   return cfg()?.languageLabels || {};
 }
 
-function L(key, fallback) {
-  const map = labels();
-  const value = map?.[key];
-  return (typeof value === "string" && value.trim()) ? value : fallback;
-}
-
-function text(value, fallback = "") {
-  const out = String(value ?? "").trim();
-  return out || fallback;
-}
-
 function normalizePlaybackToken(value) {
   return text(value).toLowerCase().replace(/[\s_-]+/g, "");
 }
@@ -242,22 +257,6 @@ function setStudioHubLoadingState(targetEl, isLoading) {
     if ("disabled" in el) el.disabled = false;
   } catch {}
   return true;
-}
-
-function getItemTypeName(itemLike) {
-  return text(
-    itemLike?.Type ||
-    itemLike?.ItemType ||
-    itemLike?.type ||
-    itemLike?.itemType
-  ).toLowerCase();
-}
-
-function getItemMediaTypeName(itemLike) {
-  return text(
-    itemLike?.MediaType ||
-    itemLike?.mediaType
-  ).toLowerCase();
 }
 
 function normalizeWatchlistTabKey(value) {
@@ -424,37 +423,12 @@ function getWatchlistTabButtonText(model, tabKey) {
   return `${label} (${formatCount(count)})`;
 }
 
-function isSeriesItem(itemLike) {
-  const type = getItemTypeName(itemLike);
-  return type === "series" || type === "season" || type === "episode";
-}
-
-function isCollectionItem(itemLike) {
-  const type = getItemTypeName(itemLike);
-  return type === "boxset" || type === "collectionfolder";
-}
-
 function getPreviewContainerMode(itemLike) {
   const type = getItemTypeName(itemLike);
   if (type === "boxset" || type === "collectionfolder") return "collection";
   if (type === "series") return "season";
   if (type === "season") return "episode";
   return "";
-}
-
-function isMusicItem(itemLike) {
-  const type = getItemTypeName(itemLike);
-  const mediaType = getItemMediaTypeName(itemLike);
-  if (type === "musicalbum") return false;
-  if (mediaType === "audio") return true;
-  return [
-    "audio",
-    "musicartist",
-    "musicvideo",
-    "playlist",
-    "folder",
-    "audiobook"
-  ].includes(type);
 }
 
 function isMarkedPlayed(itemLike) {
@@ -1233,6 +1207,7 @@ function normalizeDashboard(raw) {
   normalized._membership = buildMembershipSet(normalized);
   normalized._loadedAt = Date.now();
   normalized._userId = getCurrentUserContext().userId;
+  publishWatchlistMembership(normalized._membership);
   return normalized;
 }
 
@@ -1308,6 +1283,7 @@ function refreshMembership(dashboard = dashboardCache) {
   dashboard._loadedAt = Date.now();
   dashboard._userId = getCurrentUserContext().userId;
   dashboardCache = dashboard;
+  publishWatchlistMembership(dashboardCache._membership);
   return dashboardCache;
 }
 
@@ -1342,16 +1318,6 @@ export async function ensureWatchlistLoaded({ force = false } = {}) {
   });
 
   return dashboardPromise;
-}
-
-export function getCachedWatchlistMembership(itemId, fallback = false) {
-  const id = text(itemId);
-  if (!id) return !!fallback;
-  const membership = dashboardCache?._membership;
-  if (membership instanceof Set) {
-    return membership.has(id);
-  }
-  return !!fallback;
 }
 
 function patchItemMembership(item) {
@@ -1529,52 +1495,6 @@ function notifyWatchlistChanged(detail = {}) {
       }
     }));
   } catch {}
-}
-
-export function isMusicAlbumItem(itemLike) {
-  const type = text(
-    itemLike?.Type ||
-    itemLike?.ItemType ||
-    itemLike?.type ||
-    itemLike?.itemType
-  );
-  return type.toLowerCase() === "musicalbum";
-}
-
-export function getWatchlistButtonText(itemLike, inWatchlist) {
-  if (inWatchlist) {
-    return isMusicAlbumItem(itemLike)
-      ? L("watchlistAlbumRemove", "Albüm listesinden çıkar")
-      : L("watchlistRemove", "Listeden çıkar");
-  }
-
-  return isMusicAlbumItem(itemLike)
-    ? L("watchlistAlbumAdd", "Albüm listeme ekle")
-    : L("watchlistAdd", "Listeme ekle");
-}
-
-export function getWatchlistButtonTitle(itemLike, inWatchlist) {
-  return getWatchlistButtonText(itemLike, inWatchlist);
-}
-
-export function getWatchlistToast(itemLike, added) {
-  if (added) {
-    return isMusicAlbumItem(itemLike)
-      ? L("watchlistAlbumAdded", "Albüm listene eklendi")
-      : L("watchlistAdded", "Öğe listene eklendi");
-  }
-
-  return isMusicAlbumItem(itemLike)
-    ? L("watchlistAlbumRemoved", "Albüm listenden çıkarıldı")
-    : L("watchlistRemoved", "Öğe listenden çıkarıldı");
-}
-
-export function getWatchlistTabKey(itemLike) {
-  if (isMusicAlbumItem(itemLike)) return "albums";
-  if (isCollectionItem(itemLike)) return "collections";
-  if (isSeriesItem(itemLike)) return "series";
-  if (isMusicItem(itemLike)) return "music";
-  return "movies";
 }
 
 export async function addToWatchlist(itemId, options = {}) {

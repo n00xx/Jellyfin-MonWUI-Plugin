@@ -1,6 +1,5 @@
-import { musicPlayerState } from "./core/state.js";
-import { initPlayer } from "./mainIndex.js";
-import { togglePlayerVisibility } from "./ui/playerUI.js";
+import { musicPlayerState } from "../core/state.js";
+import { initPlayer, togglePlayerVisibility } from "./mainIndex.js";
 import { makeCleanupBag, addEvent } from "./cleanup.js";
 
 export function createPlayButton() {

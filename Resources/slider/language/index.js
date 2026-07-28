@@ -1,13 +1,17 @@
-import { languageLabels as turLabels } from './tur.js';
+// English is the only bundle loaded eagerly: getLanguageLabels() is synchronous and falls back
+// to it for any language that is not resolved yet, so one label set has to be present up front.
+// Every other language — Turkish included — loads through LABEL_LOADERS. The top-level await
+// below resolves the effective language before this module finishes evaluating, so consumers
+// still never observe a partially-translated state.
 import { languageLabels as engLabels } from './eng.js';
 
 export const AUTO_LANGUAGE_CHANGE_EVENT = 'jms:auto-language-changed';
 
 const LABEL_CACHE = {
-  tur: turLabels,
   eng: engLabels
 };
 const LABEL_LOADERS = {
+  tur: () => import('./tur.js'),
   deu: () => import('./deu.js'),
   fre: () => import('./fre.js'),
   rus: () => import('./rus.js'),

@@ -4,7 +4,7 @@ import { openSettings } from "./settingsLoader.js";
 import { getProviderUrl } from './utils.js';
 import { applyContainerStyles } from './positionUtils.js';
 import { withServer } from "./jfUrl.js";
-import { ensureWatchlistLoaded, getCachedWatchlistMembership, getWatchlistButtonText } from "./watchlist.js";
+import { getCachedWatchlistMembership, getWatchlistButtonText } from "./watchlistShared.js";
 
 let __castModulePromise = null;
 
@@ -416,7 +416,10 @@ if (config.showFavoriteButton) {
         isFavorited ? "favorited" : ""
     );
 
-    ensureWatchlistLoaded().then(() => {
+    // Loaded on demand: the button paints immediately from the cached membership above, and
+    // only this refresh needs the full watchlist module. Keeping it off the static graph keeps
+    // ~400 KB (watchlist.js plus the seerr bridge it pulls in) out of first load.
+    import("./watchlist.js").then(({ ensureWatchlistLoaded }) => ensureWatchlistLoaded()).then(() => {
         const buttonElement = favoriteBtnContainer.querySelector(".monwui-favorite-btn");
         const textSpan = favoriteBtnContainer.querySelector(".monwui-btn-text");
         const iconWrapper = buttonElement?.querySelector(".monwui-icon-wrapper");

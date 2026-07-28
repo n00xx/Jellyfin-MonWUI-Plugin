@@ -19,7 +19,8 @@ import {
 } from "./homeSectionChain.js";
 import { resolveSliderAssetHref } from "./assetLinks.js";
 import { withServer } from "./jfUrl.js";
-import { ensureWatchlistLoaded, getCachedWatchlistMembership, getWatchlistButtonText } from "./watchlist.js";
+import { getCachedWatchlistMembership, getWatchlistButtonText } from "./watchlistShared.js";
+import { ensureWatchlistLoaded } from "./watchlist.js";
 import {
   buildStudioHubLogoUrl,
   buildStudioHubVideoUrl,

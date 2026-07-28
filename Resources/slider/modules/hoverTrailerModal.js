@@ -17,7 +17,7 @@ import { applyDotPosterAnimation } from "./animations.js";
 import { getCurrentIndex } from "./sliderState.js";
 import { openDetailsModal } from "./detailsModalLoader.js";
 import { withServer } from "./jfUrl.js";
-import { getWatchlistButtonTitle, hydrateWatchlistState } from "./watchlist.js";
+import { getWatchlistButtonTitle } from "./watchlistShared.js";
 import { cleanupImageResourceRefs } from "./imageResourceCleanup.js";
 
 const REOPEN_BLOCK_MS = 600;
@@ -341,7 +341,11 @@ function hardWipeModalDom(modal = modalState.videoModal) {
 }
 
 export async function updateModalContent(item, videoUrl) {
-  await hydrateWatchlistState(item).catch(() => {});
+  // Loaded on demand rather than statically: this runs when a hover preview opens, not during
+  // startup, so the full watchlist module does not need to be on the first-load path.
+  await import("./watchlist.js")
+    .then(({ hydrateWatchlistState }) => hydrateWatchlistState(item))
+    .catch(() => {});
   const modal = modalState.videoModal;
   if (!modal || !document.body.contains(modal)) return;
   if (modal?.dataset?.itemId && item?.Id && String(item.Id) !== String(modal.dataset.itemId)) return;

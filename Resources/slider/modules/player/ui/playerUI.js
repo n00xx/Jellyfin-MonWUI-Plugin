@@ -21,7 +21,7 @@ import { makeCleanupBag, addEvent, trackTimeout, trackObserver } from "../utils/
 import { withServer, withParams } from "../../jfUrl.js";
 import { showRadioModal } from "./radioModal.js";
 import { updateFavoriteStatus } from "../../../../Plugins/JMSFusion/runtime/api.js";
-import { getCachedWatchlistMembership, getWatchlistButtonTitle, getWatchlistToast } from "../../watchlist.js";
+import { getCachedWatchlistMembership, getWatchlistButtonTitle, getWatchlistToast } from "../../watchlistShared.js";
 import {
   getRadioPersistenceInfo,
   isRadioTrack,
