@@ -233,6 +233,31 @@ function mutationsTouchSelectors(mutations, selectors = "") {
   return false;
 }
 
+/**
+ * Wraps a MutationObserver callback so it runs at most once per animation frame, and only for
+ * batches that actually touched something matching `selectors`.
+ *
+ * Jellyfin's DOM churns continuously while card rows render, and these observers stay installed
+ * for the lifetime of the page. Without coalescing, a callback doing a handful of DOM queries
+ * runs them hundreds of times a second to compute a result that can only change once per frame.
+ */
+function createCoalescedObserver(handler, { selectors = "" } = {}) {
+  let frame = 0;
+
+  const run = () => {
+    frame = 0;
+    try {
+      handler();
+    } catch {}
+  };
+
+  return new MutationObserver((mutations) => {
+    if (selectors && !mutationsTouchSelectors(mutations, selectors)) return;
+    if (frame) return;
+    frame = requestAnimationFrame(run);
+  });
+}
+
 function stripComputedContentQuotes(value) {
   return String(value || "").replace(/^['"]|['"]$/g, "");
 }
@@ -2417,7 +2442,7 @@ function installHomeTabSliderOnlyGate() {
 
   apply();
 
-  const mo = new MutationObserver(() => apply());
+  const mo = createCoalescedObserver(apply);
   mo.observe(getDomObserveRoot(), { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
 
   const tick = () => apply();
@@ -6358,7 +6383,10 @@ function installFocusedPlaybackUserDataSync() {
 
 function observeWhenHomeReady(cb, maxMs = 20000) {
   const start = Date.now();
-  const mo = new MutationObserver(() => {
+  // Coalesced because this runs during page load, when the DOM is at its busiest, and each pass
+  // costs four document-wide querySelector calls. Once per frame is enough to notice the home
+  // container appearing, and the observer disconnects as soon as it does.
+  const mo = createCoalescedObserver(() => {
     const ready =
       document.querySelector("#indexPage:not(.hide) .homeSectionsContainer") ||
       document.querySelector("#homePage:not(.hide) .homeSectionsContainer") ||

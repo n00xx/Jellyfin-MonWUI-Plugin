@@ -1,5 +1,29 @@
 import { getConfig } from './config.js';
 
+/**
+ * Builds a MutationObserver whose callback runs at most once per animation frame.
+ *
+ * Both observers in this module write layout overrides and stay connected for the lifetime of
+ * the page. Jellyfin mutates the DOM continuously while rows render, so an uncoalesced callback
+ * recomputes and reapplies the same values hundreds of times a second; the result can only take
+ * effect once per frame either way.
+ */
+function createCoalescedObserver(handler) {
+  let frame = 0;
+
+  const run = () => {
+    frame = 0;
+    try {
+      handler();
+    } catch {}
+  };
+
+  return new MutationObserver(() => {
+    if (frame) return;
+    frame = requestAnimationFrame(run);
+  });
+}
+
 let homeTopObserver = null;
 let skinHeaderObserver = null;
 let applyHomeTop = null;
@@ -376,9 +400,7 @@ export function forceHomeSectionsTop() {
       scheduleBurst(applyAlways);
     }
 
-    homeTopObserver = new MutationObserver(() => {
-      try { applyHomeTop?.(); } catch {}
-    });
+    homeTopObserver = createCoalescedObserver(() => applyHomeTop?.());
     reconnectObserver(homeTopObserver);
   } else {
     scheduleBurst(applyAlways);
@@ -414,9 +436,7 @@ export function forceSkinHeaderPointerEvents() {
       scheduleBurst(apply);
     }
 
-    skinHeaderObserver = new MutationObserver(() => {
-      try { applySkinHeader?.(); } catch {}
-    });
+    skinHeaderObserver = createCoalescedObserver(() => applySkinHeader?.());
     reconnectObserver(skinHeaderObserver);
   } else {
     scheduleBurst(apply);
