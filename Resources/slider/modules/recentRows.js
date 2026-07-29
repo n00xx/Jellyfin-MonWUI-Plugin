@@ -23,6 +23,7 @@ import {
   resolveCinemaPreRollLocale
 } from "./cinemaPreRollLocale.js";
 import { faIconHtml } from "./faIcons.js";
+import { openSectionExplorer, SECTION_ENDPOINT_NEXT_UP } from "./sectionExplorer.js";
 import { resolveSliderAssetHref } from "./assetLinks.js";
 import {
   getActiveHomePageEl,
@@ -2734,24 +2735,61 @@ function getMusicHashFallback() {
   );
 }
 
-function openLatestPage(type) {
-  if (type === "Series" || type === "Episode") {
-    gotoHash(getTvHashFallback());
-    return;
-  }
-  if (type === "MusicAlbum" || type === "Audio") {
-    gotoHash(getMusicHashFallback());
-    return;
-  }
-  gotoHash(getMoviesHashFallback());
+/* ------------------------------------------------------------------------- *
+ * See All → MonWUI section explorer
+ *
+ * Every row's chevron opens the MonWUI overlay over the current page instead of
+ * navigating to Jellyfin's own library pages. The hash each row used to jump to is kept
+ * as `fallbackHash` and only used when the explorer cannot open, so the native UI stays
+ * reachable as a fallback rather than as the default.
+ *
+ * The queries below mirror the row fetchers (fetchRecent, fetchContinue, …) so the
+ * overlay shows the same set the row was showing, just unbounded. The quick search
+ * reuses these same params, which is what keeps it from escaping the row's scope.
+ * ------------------------------------------------------------------------- */
+
+function openSeeAll(descriptor) {
+  // gotoHash, not location.hash: it injects the serverId the native routes need.
+  openSectionExplorer({ ...descriptor, onFallback: gotoHash });
 }
 
-function openResumePage(type) {
-  if (type === "Series" || type === "Episode") {
-    gotoHash(getTvHashFallback());
-    return;
-  }
-  gotoHash(getMoviesHashFallback());
+function seeAllRecentQuery(type, parentId = "") {
+  return {
+    ...(type ? { IncludeItemTypes: type } : {}),
+    Recursive: "true",
+    ...(parentId ? { ParentId: parentId } : {}),
+    SortBy: "DateCreated",
+    SortOrder: "Descending",
+  };
+}
+
+function seeAllContinueQuery(type, parentId = "") {
+  return {
+    Filters: "IsResumable",
+    MediaTypes: "Video",
+    ...(type ? { IncludeItemTypes: type } : {}),
+    Recursive: "true",
+    ...(parentId ? { ParentId: parentId } : {}),
+    SortBy: "DatePlayed,DateCreated",
+    SortOrder: "Descending",
+  };
+}
+
+/**
+ * Top 10 and the TMDb top rows are curated ranked selections that no single query can
+ * reproduce. Their See All widens to everything of that type in the same libraries,
+ * highest rated first — the ordering those rankings are derived from.
+ */
+function seeAllTopRatedQuery(type, parentIds = []) {
+  const scoped = normalizeIdList(parentIds);
+  return {
+    IncludeItemTypes: type,
+    Recursive: "true",
+    ...(scoped.length === 1 ? { ParentId: scoped[0] } : {}),
+    ...(scoped.length > 1 ? { ParentIds: scoped.join(",") } : {}),
+    SortBy: "CommunityRating,DateCreated",
+    SortOrder: "Descending",
+  };
 }
 
 function queueEnterAnimation(el) {
@@ -3823,7 +3861,9 @@ function buildSectionSkeleton({ titleText, badgeType, onSeeAll }) {
   const doSeeAll = (e) => {
     try { e?.preventDefault?.(); e?.stopPropagation?.(); } catch {}
     if (typeof onSeeAll === "function") {
-      try { onSeeAll(); } catch (err) { console.error("RecentRows seeAll error:", err); }
+      // The row title is passed in so descriptors can label the explorer header without
+      // every call site repeating its own title expression.
+      try { onSeeAll(titleText); } catch (err) { console.error("RecentRows seeAll error:", err); }
     }
   };
 
@@ -4802,7 +4842,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
           cachedItems: () => loadCachedLocalTop10Items("top", topSeriesMetaType, TTL_TOP10_MS)
         }
       ),
-      onSeeAll: () => openLatestPage("Series")
+      onSeeAll: (title) => openSeeAll({
+        title,
+        query: seeAllTopRatedQuery("Series", topSeriesParentIds),
+        fallbackHash: getTvHashFallback(),
+      })
     }));
   }
 
@@ -4829,7 +4873,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
           cachedItems: () => loadCachedLocalTop10Items("top", topMovieMetaType, TTL_TOP10_MS)
         }
       ),
-      onSeeAll: () => openLatestPage("Movie")
+      onSeeAll: (title) => openSeeAll({
+        title,
+        query: seeAllTopRatedQuery("Movie", topMovieParentIds),
+        fallbackHash: getMoviesHashFallback(),
+      })
     }));
   }
 
@@ -4895,7 +4943,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
           }
         }
       ),
-      onSeeAll: () => openLatestPage("Movie")
+      onSeeAll: (title) => openSeeAll({
+        title,
+        query: seeAllTopRatedQuery("Movie", tmdbMovieParentIds),
+        fallbackHash: getMoviesHashFallback(),
+      })
     }));
   }
 
@@ -4976,7 +5028,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
             })
           }
         ),
-        onSeeAll: () => openLatestPage("Movie")
+        onSeeAll: (title) => openSeeAll({
+          title,
+          query: seeAllRecentQuery("Movie"),
+          fallbackHash: getMoviesHashFallback(),
+        })
       }));
     } else {
       for (const movieLibId of movieLibIds) {
@@ -4999,7 +5055,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
               })
             }
           ),
-          onSeeAll: () => gotoHash(getMoviesLibraryHash(movieLibId))
+          onSeeAll: (title) => openSeeAll({
+            title,
+            query: seeAllRecentQuery("Movie", movieLibId),
+            fallbackHash: getMoviesLibraryHash(movieLibId),
+          })
         }));
       }
     }
@@ -5028,7 +5088,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
             })
           }
         ),
-        onSeeAll: () => openLatestPage("Series")
+        onSeeAll: (title) => openSeeAll({
+          title,
+          query: seeAllRecentQuery("Series"),
+          fallbackHash: getTvHashFallback(),
+        })
       }));
     } else {
       for (const tvLibId of tvIds) {
@@ -5051,7 +5115,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
               })
             }
           ),
-          onSeeAll: () => gotoHash(`#/tv?topParentId=${encodeURIComponent(tvLibId)}&collectionType=tvshows&tab=1`)
+          onSeeAll: (title) => openSeeAll({
+            title,
+            query: seeAllRecentQuery("Series", tvLibId),
+            fallbackHash: `#/tv?topParentId=${encodeURIComponent(tvLibId)}&collectionType=tvshows&tab=1`,
+          })
         }));
       }
     }
@@ -5081,7 +5149,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
             })
           }
         ),
-        onSeeAll: () => openLatestPage("Episode")
+        onSeeAll: (title) => openSeeAll({
+          title,
+          query: seeAllRecentQuery("Episode"),
+          fallbackHash: getTvHashFallback(),
+        })
       }));
     } else {
       for (const tvLibId of tvIds) {
@@ -5105,7 +5177,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
               })
             }
           ),
-          onSeeAll: () => gotoHash(`#/tv?topParentId=${encodeURIComponent(tvLibId)}&collectionType=tvshows&tab=1`)
+          onSeeAll: (title) => openSeeAll({
+            title,
+            query: seeAllRecentQuery("Episode", tvLibId),
+            fallbackHash: `#/tv?topParentId=${encodeURIComponent(tvLibId)}&collectionType=tvshows&tab=1`,
+          })
         }));
       }
     }
@@ -5130,7 +5206,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
           })
         }
       ),
-      onSeeAll: () => openLatestPage("MusicAlbum"),
+      onSeeAll: (title) => openSeeAll({
+        title,
+        query: seeAllRecentQuery("MusicAlbum"),
+        fallbackHash: getMusicHashFallback(),
+      }),
       randomHero: false
     }));
   }
@@ -5154,7 +5234,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
           })
         }
       ),
-      onSeeAll: () => openResumePage("Movie"),
+      onSeeAll: (title) => openSeeAll({
+        title,
+        query: seeAllContinueQuery("Movie"),
+        fallbackHash: getMoviesHashFallback(),
+      }),
       randomHero: true
     }));
   }
@@ -5183,7 +5267,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
             })
           }
         ),
-        onSeeAll: () => openResumePage("Episode"),
+        onSeeAll: (title) => openSeeAll({
+          title,
+          query: seeAllContinueQuery("Episode"),
+          fallbackHash: getTvHashFallback(),
+        }),
         randomHero: true
       }));
     } else {
@@ -5208,7 +5296,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
               })
             }
           ),
-          onSeeAll: () => gotoHash(`#/tv?topParentId=${encodeURIComponent(tvLibId)}&collectionType=tvshows&tab=1`),
+          onSeeAll: (title) => openSeeAll({
+            title,
+            query: seeAllContinueQuery("Episode", tvLibId),
+            fallbackHash: `#/tv?topParentId=${encodeURIComponent(tvLibId)}&collectionType=tvshows&tab=1`,
+          }),
           randomHero: true
         }));
       }
@@ -5235,7 +5327,15 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
           })
         }
       ),
-      onSeeAll: () => gotoHash(STATE.defaultTvHash || DEFAULT_TV_PAGE),
+      // /Shows/NextUp has no SearchTerm equivalent, so this row lists without a search box
+      // rather than shipping one that ignores what is typed into it.
+      onSeeAll: (title) => openSeeAll({
+        title,
+        endpoint: SECTION_ENDPOINT_NEXT_UP,
+        query: {},
+        searchable: false,
+        fallbackHash: STATE.defaultTvHash || DEFAULT_TV_PAGE,
+      }),
       randomHero: true
     }));
   }
@@ -5270,7 +5370,12 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
             })
           }
         ),
-        onSeeAll: () => gotoHash(`#/list.html?parentId=${encodeURIComponent(libId)}`)
+        // No IncludeItemTypes: these libraries hold mixed types, matching fetchRecentGeneric.
+        onSeeAll: (title) => openSeeAll({
+          title,
+          query: seeAllRecentQuery("", libId),
+          fallbackHash: `#/list.html?parentId=${encodeURIComponent(libId)}`,
+        })
       }));
     }
 
@@ -5294,7 +5399,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
             })
           }
         ),
-        onSeeAll: () => gotoHash(`#/list.html?parentId=${encodeURIComponent(libId)}&tab=resume`),
+        onSeeAll: (title) => openSeeAll({
+          title,
+          query: seeAllContinueQuery("", libId),
+          fallbackHash: `#/list.html?parentId=${encodeURIComponent(libId)}&tab=resume`,
+        }),
         randomHero: true
       }));
     }
@@ -5319,7 +5428,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
             })
           }
         ),
-        onSeeAll: () => gotoHash(`#/list.html?parentId=${encodeURIComponent(libId)}&includeItemTypes=Episode`)
+        onSeeAll: (title) => openSeeAll({
+          title,
+          query: seeAllRecentQuery("Episode", libId),
+          fallbackHash: `#/list.html?parentId=${encodeURIComponent(libId)}&includeItemTypes=Episode`,
+        })
       }));
     }
   }
@@ -5343,7 +5456,18 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
           })
         }
       ),
-      onSeeAll: () => openLatestPage("Audio"),
+      onSeeAll: (title) => openSeeAll({
+        title,
+        // Mirrors fetchRecentlyPlayedTracks: played tracks, most recently listened first.
+        query: {
+          IncludeItemTypes: "Audio",
+          Recursive: "true",
+          Filters: "IsPlayed",
+          SortBy: "DatePlayed",
+          SortOrder: "Descending",
+        },
+        fallbackHash: getMusicHashFallback(),
+      }),
       randomHero: false
     }));
   }
@@ -5386,7 +5510,19 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
             })
           }
         ),
-        onSeeAll: () => gotoHash(buildLibraryHubSeeAllHash(lib))
+        // Mirrors fetchLibraryHubItems, so the explorer is the whole library A→Z and the
+        // search reaches every title in it — not just the ones the row had room for.
+        onSeeAll: (title) => openSeeAll({
+          title,
+          query: {
+            ParentId: libId,
+            IncludeItemTypes: getLibraryHubItemTypes(lib?.CollectionType),
+            Recursive: "true",
+            SortBy: "SortName",
+            SortOrder: "Ascending",
+          },
+          fallbackHash: buildLibraryHubSeeAllHash(lib),
+        })
       }));
     }
   }
