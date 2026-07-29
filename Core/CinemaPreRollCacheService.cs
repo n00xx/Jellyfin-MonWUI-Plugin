@@ -72,8 +72,8 @@ public sealed class CinemaPreRollCacheService
     {
         public string CacheFile { get; set; } = CacheFileName;
         public string CacheKey { get; set; } = string.Empty;
-        public string Language { get; set; } = "tr-TR";
-        public string Region { get; set; } = "TR";
+        public string Language { get; set; } = "es-MX";
+        public string Region { get; set; } = "MX";
         public long UpdatedAtUtc { get; set; }
         public int TargetItemCount { get; set; }
         public bool Stale { get; set; }
@@ -118,8 +118,8 @@ public sealed class CinemaPreRollCacheService
     private sealed class LocaleCacheModel
     {
         public string CacheKey { get; set; } = string.Empty;
-        public string Language { get; set; } = "tr-TR";
-        public string Region { get; set; } = "TR";
+        public string Language { get; set; } = "es-MX";
+        public string Region { get; set; } = "MX";
         public long UpdatedAtUtc { get; set; }
         public int TargetItemCount { get; set; }
         public List<CacheItem> Items { get; set; } = new();
@@ -1170,7 +1170,7 @@ public sealed class CinemaPreRollCacheService
 
     private static string NormalizeTmdbLanguage(string? raw)
     {
-        var value = string.IsNullOrWhiteSpace(raw) ? "tr-TR" : raw.Trim().Replace("_", "-");
+        var value = string.IsNullOrWhiteSpace(raw) ? "es-MX" : raw.Trim().Replace("_", "-");
         if (System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z]{2}-[A-Z]{2}$"))
         {
             return value;
@@ -1179,13 +1179,9 @@ public sealed class CinemaPreRollCacheService
         var lower = value.ToLowerInvariant();
         return lower switch
         {
-            "tr" or "tur" => "tr-TR",
             "en" or "eng" => "en-US",
-            "de" or "deu" => "de-DE",
-            "fr" or "fre" or "fra" => "fr-FR",
-            "ru" or "rus" => "ru-RU",
-            "es" or "spa" => "es-ES",
-            _ => "tr-TR"
+            "es" or "spa" => "es-MX",
+            _ => "es-MX"
         };
     }
 
@@ -1203,7 +1199,7 @@ public sealed class CinemaPreRollCacheService
             return parts[1].ToUpperInvariant();
         }
 
-        return "TR";
+        return "MX";
     }
 
     private static bool TryGetFreshLocaleSnapshot(CacheFileModel fileModel, string cacheKey, out LocaleCacheModel snapshot)

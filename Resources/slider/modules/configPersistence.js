@@ -29,13 +29,10 @@ export function updateConfig(updatedConfig, options = {}) {
     }
   }
 
-  const existingDicebearParams = localStorage.getItem("dicebearParams");
   const isPlainObject = (value) =>
     value !== null && typeof value === "object" && !Array.isArray(value);
 
   Object.entries(updatedConfig || {}).forEach(([key, value]) => {
-    if (key === "dicebearParams") return;
-
     try {
       if (typeof value === "boolean") {
         localStorage.setItem(key, value ? "true" : "false");
@@ -54,10 +51,6 @@ export function updateConfig(updatedConfig, options = {}) {
       console.warn("Config yazılamadı:", key, err);
     }
   });
-
-  if (existingDicebearParams) {
-    localStorage.setItem("dicebearParams", existingDicebearParams);
-  }
 
   if (updatedConfig?.defaultLanguage !== undefined) {
     localStorage.setItem("defaultLanguage", updatedConfig.defaultLanguage);

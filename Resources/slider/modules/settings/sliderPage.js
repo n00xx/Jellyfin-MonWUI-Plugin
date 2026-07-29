@@ -49,7 +49,7 @@ export function createSliderPanel(config, labels) {
   const languageDiv = document.createElement('div');
   languageDiv.className = 'setting-item';
   const languageLabel = document.createElement('label');
-  languageLabel.textContent = labels.defaultLanguage || 'Dil:';
+  languageLabel.textContent = labels.defaultLanguage || 'Idioma:';
   languageLabel.htmlFor = 'defaultLanguageSelect';
   const languageSelect = document.createElement('select');
   languageSelect.name = 'defaultLanguage';
@@ -59,16 +59,9 @@ export function createSliderPanel(config, labels) {
   const effective = getDefaultLanguage();
 
   const languages = [
-    { value: 'auto', label: labels.optionAuto || '🌐 Otomatik (Tarayıcı dili)' },
-    { value: 'tur',  label: labels.optionTurkish || '🇹🇷 Türkçe' },
-    { value: 'eng',  label: labels.optionEnglish || '🇬🇧 English' },
-    { value: 'spa',  label: labels.optionEspanol || '🇪🇸 Español' },
-    { value: 'deu',  label: labels.optionGerman  || '🇩🇪 Deutsch' },
-    { value: 'fre',  label: labels.optionFrench  || '🇫🇷 Français' },
-    { value: 'rus',  label: labels.optionRussian || '🇷🇺 Русский' },
-    { value: 'ita',  label: '🇮🇹 Italiano' },
-    { value: 'jpn',  label: '🇯🇵 日本語' },
-    { value: 'por',  label: '🇧🇷 Português' },
+    { value: 'auto', label: labels.optionAuto || '🌐 Automático (idioma del navegador)' },
+    { value: 'spa',  label: labels.optionEspanol || '🇲🇽 Español (Latinoamérica)' },
+    { value: 'eng',  label: labels.optionEnglish || '🇺🇸 English' },
   ];
 
   languages.forEach(lang => {

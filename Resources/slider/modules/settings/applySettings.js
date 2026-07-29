@@ -3,7 +3,6 @@ import { updateConfig } from "../configPersistence.js";
 import { loadCSS } from "../playerStyles.js";
 import { updateSlidePosition } from '../positionUtils.js';
 import { createCheckbox, createImageTypeSelect, bindCheckboxKontrol, bindTersCheckboxKontrol } from "./shared.js";
-import { updateHeaderUserAvatar, updateAvatarStyles, clearAvatarCache } from "../userAvatar.js";
 import { showNotification } from "../player/ui/notification.js";
 import { updateJmsPluginConfig } from "../jmsPluginConfig.js";
 import { closeDetailsModalIfLoaded } from "../detailsModalLoader.js";
@@ -245,26 +244,6 @@ function pick(obj, keys) {
 }
 
 const USER_ONLY_KEYS = [
-  "createAvatar",
-  "avatarWidth",
-  "avatarHeight",
-  "avatarFontSize",
-  "avatarTextShadow",
-  "avatarColorMethod",
-  "avatarSolidColor",
-  "avatarGradient",
-  "avatarFontFamily",
-  "avatarStyle",
-  "dicebearStyle",
-  "dicebearBackgroundColor",
-  "dicebearRadius",
-  "avatarScale",
-  "dicebearBackgroundEnabled",
-  "dicebearPosition",
-  "autoRefreshAvatar",
-  "avatarRefreshTime",
-  "randomDicebearAvatar",
-  "dicebearParams",
   "playerTheme",
   "settingsHotkey",
   "cinemaPreRollEnabled",
@@ -455,26 +434,6 @@ const USER_ONLY_KEYS = [
             dotBackgroundBlur: parseInt(formData.get('dotBackgroundBlur')),
             dotBackgroundOpacity: parseFloat(formData.get('dotBackgroundOpacity')),
             dotPosterMode: formData.get('dotPosterMode') === 'on',
-            createAvatar: formData.get('createAvatar') === 'on',
-            avatarWidth: parseInt(formData.get('avatarWidth'), 10),
-            avatarHeight: parseInt(formData.get('avatarHeight'), 10),
-            avatarFontSize: parseInt(formData.get('avatarFontSize'), 10),
-            avatarTextShadow: formData.get('avatarTextShadow'),
-            avatarColorMethod: formData.get('avatarColorMethod'),
-            avatarSolidColor: formData.get('avatarSolidColor'),
-            avatarGradient: formData.get('avatarGradient'),
-            avatarFontFamily: formData.get('avatarFontFamily') || 'Righteous',
-            avatarStyle: formData.get('avatarStyle') || 'dicebear',
-            dicebearStyle: formData.get('dicebearStyle') || 'Adventurer',
-            dicebearBackgroundColor: formData.get('dicebearBackgroundColor') || 'transparent',
-            dicebearRadius: parseInt(formData.get('dicebearRadius'), 10) || 50,
-            avatarScale: parseFloat(formData.get('avatarScale')) || 1,
-            dicebearBackgroundEnabled: formData.get('dicebearBackgroundEnabled') === 'on',
-            dicebearPosition: formData.get('dicebearPosition') === 'on',
-            autoRefreshAvatar: formData.get('autoRefreshAvatar') === 'on',
-            avatarRefreshTime: parseInt(formData.get('avatarRefreshTime'), 10),
-            randomDicebearAvatar: formData.get('randomDicebearAvatar') === 'on',
-            dicebearParams: config.dicebearParams || {},
             previewModal: formData.get('previewModal') === 'on',
             allPreviewModal: formData.get('allPreviewModal') === 'on',
             previewTrailerStartMuted: formData.get('previewTrailerStartMuted') === 'on',
@@ -1154,37 +1113,16 @@ const USER_ONLY_KEYS = [
           publishResult = await publishAdminSnapshotIfForced();
         }
         updateSlidePosition();
-        updateHeaderUserAvatar();
         if (oldTheme !== updatedConfig.playerTheme || oldPlayerStyle !== updatedConfig.playerStyle) {
         loadCSS();
     }
 
     if (cfgGuard?.forceGlobalUserSettings && !isAdmin) {
       showNotification(
-        `<i class="fas fa-user" style="margin-right:8px;"></i> ${cfgGuard?.languageLabels?.settingsSavedModal || "Avatar/tema ayarların kullanıcıya özel kaydedildi."}`,
+        `<i class="fas fa-user" style="margin-right:8px;"></i> ${cfgGuard?.languageLabels?.settingsSavedModal || "Configuración guardada. Recarga la página del slider para que los cambios surtan efecto."}`,
         2500,
         "info"
       );
-    }
-
-    const avatarSettingsChanged =
-        config.createAvatar !== updatedConfig.createAvatar ||
-        config.avatarStyle !== updatedConfig.avatarStyle ||
-        config.dicebearStyle !== updatedConfig.dicebearStyle ||
-        config.dicebearBackgroundColor !== updatedConfig.dicebearBackgroundColor ||
-        config.dicebearRadius !== updatedConfig.dicebearRadius ||
-        config.avatarScale !== updatedConfig.avatarScale ||
-        config.avatarColorMethod !== updatedConfig.avatarColorMethod ||
-        config.avatarSolidColor !== updatedConfig.avatarSolidColor ||
-        config.avatarFontFamily !== updatedConfig.avatarFontFamily ||
-        config.avatarGradient !== updatedConfig.avatarGradient;
-
-    if (avatarSettingsChanged) {
-        console.log("Avatar ayarları değişti, hemen güncelleniyor...");
-        clearAvatarCache();
-        updateHeaderUserAvatar();
-    } else {
-        updateAvatarStyles();
     }
 
     if (!reload) {

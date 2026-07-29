@@ -1290,7 +1290,7 @@ function getDetailFor(n) {
       seasonNum,
       episodeNum,
       episodeTitle: episodeName,
-      locale: (config.defaultLanguage || "tur"),
+      locale: (config.defaultLanguage || "spa"),
       labels: config.languageLabels || {}
     });
   } else if (d.ok && d.data?.Type === "Episode" && d.data?.SeriesName) {
@@ -1709,7 +1709,7 @@ function runToastQueue() {
         seasonNum: it.ParentIndexNumber || 0,
         episodeNum: it.IndexNumber || 0,
         episodeTitle: it.Name || "",
-        locale: (config.defaultLanguage || "tur"),
+        locale: (config.defaultLanguage || "spa"),
         labels: config.languageLabels || {}
       });
     }
@@ -2324,33 +2324,17 @@ function formatEpisodeHeading({
   seasonNum,
   episodeNum,
   episodeTitle,
-  locale = (getConfig()?.defaultLanguage || "tur"),
+  locale = (getConfig()?.defaultLanguage || "spa"),
   labels = (getConfig()?.languageLabels || {})
 }) {
   const lx = {
-    season: labels.season || { tur:"Sezon", eng:"Season", fre:"Saison", deu:"Staffel", rus:"Сезон" }[locale] || "Season",
-    episode: labels.episode || { tur:"Bölüm", eng:"Episode", fre:"Épisode", deu:"Folge",  rus:"Серия" }[locale] || "Episode",
+    season: labels.season || { spa: "Temporada", eng: "Season" }[locale] || "Temporada",
+    episode: labels.episode || { spa: "Episodio", eng: "Episode" }[locale] || "Episodio",
   };
 
-  const patterns = {
-    tur: "{series} - {seasonNum}. {season} {episodeNum}. {episode}{titlePart}",
-    eng: "{series} — {season} {seasonNum}, {episode} {episodeNum}{titlePart}",
-    fre: "{series} — {season} {seasonNum}, {episode} {episodeNum}{titlePart}",
-    deu: "{series} — {season} {seasonNum}, {episode} {episodeNum}{titlePart}",
-    rus: "{series} — {seasonNum} {season}, {episodeNum} {episode}{titlePart}",
-    default: "{series} — {season} {seasonNum}, {episode} {episodeNum}{titlePart}",
-  };
-  const pat = patterns[locale] || patterns.default;
-
-  const genericTitleTemplates = {
-    tur: "{episodeNum}. {episode}",
-    eng: "{episode} {episodeNum}",
-    fre: "{episode} {episodeNum}",
-    deu: "{episode} {episodeNum}",
-    rus: "{episode} {episodeNum}",
-    default: "{episode} {episodeNum}",
-  };
-  const genTitlePat = genericTitleTemplates[locale] || genericTitleTemplates.default;
+  // Both shipped languages use the same "label number" ordering.
+  const pat = "{series} — {season} {seasonNum}, {episode} {episodeNum}{titlePart}";
+  const genTitlePat = "{episode} {episodeNum}";
 
   const normalizedTitle = String(episodeTitle || "").trim().toLowerCase();
   const localizedGenericTitle = genTitlePat

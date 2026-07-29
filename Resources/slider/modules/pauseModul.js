@@ -779,11 +779,8 @@ function normalizeAgeRating(raw) {
 function localizedMaturityHeader() {
   const lang = String(currentLang || "").toLowerCase();
   if (labels.maturityHeader) return labels.maturityHeader;
-  if (lang.startsWith("en")  || lang.startsWith("eng")) return "MATURITY RATING:";
-  if (lang.startsWith("de")  || lang.startsWith("deu")) return "ALTERSFREIGABE:";
-  if (lang.startsWith("fr")  || lang.startsWith("fre")) return "CLASSIFICATION :";
-  if (lang.startsWith("ru")  || lang.startsWith("rus")) return "ВОЗРАСТНОЕ ОГРАНИЧЕНИЕ:";
-  return "YETİŞKİNLİK DÜZEYİ:";
+  if (lang.startsWith("en") || lang.startsWith("eng")) return "MATURITY RATING:";
+  return "CLASIFICACIÓN POR EDAD:";
 }
 function localizedGenres(genres = []) {
   if (!Array.isArray(genres) || !genres.length) return [];
@@ -3478,17 +3475,12 @@ function hideOverlay(opts = {}) {
     const sNum = ep?.ParentIndexNumber;
     const eNum = ep?.IndexNumber;
     const eTitle = ep?.Name ? ` – ${ep.Name}` : "";
-    const numberFirst = new Set(["tur"]);
 
+    // Both shipped languages put the label before the number ("Temporada 2" / "Season 2").
     let left = "",
       right = "";
-    if (numberFirst.has(currentLang)) {
-      if (sNum != null) left = `${sNum}. ${sWord}`;
-      if (eNum != null) right = `${eNum}. ${eWord}`;
-    } else {
-      if (sNum != null) left = `${sWord} ${sNum}`;
-      if (eNum != null) right = `${eWord} ${eNum}`;
-    }
+    if (sNum != null) left = `${sWord} ${sNum}`;
+    if (eNum != null) right = `${eWord} ${eNum}`;
     const mid = left && right ? " • " : "";
     return `${left}${mid}${right}${eTitle}`.trim();
   }
@@ -3496,19 +3488,9 @@ function hideOverlay(opts = {}) {
     const eNum = ep?.IndexNumber;
     const titlePart = ep?.Name ? ` - ${ep.Name}` : "";
     const lang = String(currentLang || "").toLowerCase();
-    const fallbackWords = { tur: "bölüm", eng: "Episode", en: "Episode", fra: "Épisode", fr: "Épisode", deu: "Folge", de: "Folge", rus: "серия", ru: "серия" };
-    const rawWord = (labels && typeof labels.episode === "string" && labels.episode.trim()) || fallbackWords[lang] || "Episode";
-    const numberFirstOverride = typeof labels?.numberFirstEpisode === "boolean" ? labels.numberFirstEpisode : null;
-    const numberFirst = numberFirstOverride !== null ? numberFirstOverride : lang === "tur" || lang === "ru" || lang === "rus";
+    const fallbackWords = { eng: "Episode", en: "Episode", spa: "Episodio", es: "Episodio" };
+    const rawWord = (labels && typeof labels.episode === "string" && labels.episode.trim()) || fallbackWords[lang] || "Episodio";
     if (eNum == null) return `${rawWord}${titlePart}`.trim();
-    if (lang === "tur") {
-      const w = rawWord.toLocaleLowerCase("tr");
-      return `${eNum}.${w}${titlePart}`;
-    }
-    if (lang === "ru" || lang === "rus") {
-      const w = rawWord.toLocaleLowerCase("ru");
-      return `${eNum} ${w}${titlePart}`;
-    }
     return `${rawWord} ${eNum}${titlePart}`;
   }
 

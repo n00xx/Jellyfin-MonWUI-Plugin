@@ -3350,16 +3350,11 @@ function formatSeasonEpisodeLine(ep) {
     const sNum  = ep?.ParentIndexNumber;
     const eNum  = ep?.IndexNumber;
     const eTitle = ep?.Name ? ` – ${ep.Name}` : '';
-    const numberFirst = new Set(['tur']);
 
+    // Both shipped languages put the label before the number ("Temporada 2" / "Season 2").
     let left = '', right = '';
-    if (numberFirst.has(currentLang)) {
-        if (sNum != null) left = `${sNum}. ${sWord}`;
-        if (eNum != null) right = `${eNum}. ${eWord}`;
-    } else {
-        if (sNum != null) left = `${sWord} ${sNum}`;
-        if (eNum != null) right = `${eWord} ${eNum}`;
-    }
+    if (sNum != null) left = `${sWord} ${sNum}`;
+    if (eNum != null) right = `${eWord} ${eNum}`;
     const mid = left && right ? ' • ' : '';
     return `${left}${mid}${right}${eTitle}`.trim();
 }

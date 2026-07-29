@@ -1,24 +1,26 @@
-// English is the only bundle loaded eagerly: getLanguageLabels() is synchronous and falls back
-// to it for any language that is not resolved yet, so one label set has to be present up front.
-// Every other language — Turkish included — loads through LABEL_LOADERS. The top-level await
-// below resolves the effective language before this module finishes evaluating, so consumers
-// still never observe a partially-translated state.
-import { languageLabels as engLabels } from './eng.js';
+// The plugin ships two bundles: Latin American Spanish and English, with Spanish as the default.
+// Spanish is the one loaded eagerly, for two reasons: getLanguageLabels() is synchronous and has
+// to return a complete label set for any language not resolved yet, and it is what the majority
+// of installs will actually render — loading English eagerly would ship a bundle nobody reads
+// and make the default case pay for a dynamic import. English loads through LABEL_LOADERS.
+// The top-level await below resolves the effective language before this module finishes
+// evaluating, so consumers never observe a partially-translated state.
+//
+// 'spa' is an ISO 639-2 code and must stay that way: containerUtils.js compares it directly
+// against MediaStream.Language to auto-select audio and subtitle tracks, and the Cinema Pre-Roll
+// service maps it to a culture name. Latin American Spanish is the *content* of spa.js, not a
+// separate locale identifier.
+import { languageLabels as spaLabels } from './spa.js';
 
 export const AUTO_LANGUAGE_CHANGE_EVENT = 'jms:auto-language-changed';
 
+export const DEFAULT_LANGUAGE = 'spa';
+
 const LABEL_CACHE = {
-  eng: engLabels
+  spa: spaLabels
 };
 const LABEL_LOADERS = {
-  tur: () => import('./tur.js'),
-  deu: () => import('./deu.js'),
-  fre: () => import('./fre.js'),
-  rus: () => import('./rus.js'),
-  spa: () => import('./spa.js'),
-  ita: () => import('./ita.js'),
-  jpn: () => import('./jpn.js'),
-  por: () => import('./por.js')
+  eng: () => import('./eng.js')
 };
 const LABEL_LOAD_PROMISES = new Map();
 
@@ -28,56 +30,51 @@ let __autoLanguageLastDetected = null;
 let __autoLanguagePendingReload = false;
 let __autoLanguageReloadScheduled = false;
 
+// Anything that is not recognisably English resolves to Spanish, including the codes of the
+// languages this plugin used to ship: an existing user whose stored preference is 'tur' or 'deu'
+// lands on the default instead of an undefined bundle.
 export function normalizeLanguageCode(lang) {
   const raw = String(lang || '').trim().toLowerCase();
-  if (!raw) return 'eng';
+  if (!raw) return DEFAULT_LANGUAGE;
   if (raw === 'auto') return detectBrowserLanguage();
 
   const base = raw.split(/[-_]/)[0];
 
-  if (raw === 'tur' || base === 'tr') return 'tur';
   if (raw === 'eng' || base === 'en') return 'eng';
-  if (raw === 'deu' || base === 'de') return 'deu';
-  if (raw === 'fre' || raw === 'fra' || base === 'fr') return 'fre';
-  if (raw === 'rus' || base === 'ru') return 'rus';
-  if (raw === 'spa' || base === 'es') return 'spa';
-  if (raw === 'ita' || base === 'it') return 'ita';
-  if (raw === 'jpn' || raw === 'jp' || base === 'ja') return 'jpn';
-  if (raw === 'por' || base === 'pt') return 'por';
 
-  return 'eng';
+  return DEFAULT_LANGUAGE;
 }
 
 export function getLanguageLabels(lang) {
   const effective = normalizeLanguageCode(
-    lang || getEffectiveLanguage?.() || detectBrowserLanguage?.() || 'eng'
+    lang || getEffectiveLanguage?.() || detectBrowserLanguage?.() || DEFAULT_LANGUAGE
   );
 
   if (LABEL_CACHE[effective]) return LABEL_CACHE[effective];
   void ensureLanguageLabels(effective);
-  return engLabels;
+  return spaLabels;
 }
 
 export async function ensureLanguageLabels(lang) {
   const effective = normalizeLanguageCode(
-    lang || getEffectiveLanguage?.() || detectBrowserLanguage?.() || 'eng'
+    lang || getEffectiveLanguage?.() || detectBrowserLanguage?.() || DEFAULT_LANGUAGE
   );
 
   if (LABEL_CACHE[effective]) return LABEL_CACHE[effective];
 
   const loader = LABEL_LOADERS[effective];
-  if (!loader) return engLabels;
+  if (!loader) return spaLabels;
 
   if (!LABEL_LOAD_PROMISES.has(effective)) {
     LABEL_LOAD_PROMISES.set(
       effective,
       loader()
         .then((mod) => {
-          const labels = mod?.languageLabels || engLabels;
+          const labels = mod?.languageLabels || spaLabels;
           LABEL_CACHE[effective] = labels;
           return labels;
         })
-        .catch(() => engLabels)
+        .catch(() => spaLabels)
         .finally(() => LABEL_LOAD_PROMISES.delete(effective))
     );
   }
@@ -92,17 +89,10 @@ export function detectBrowserLanguage() {
   for (const raw of candidates) {
     const code = (raw || '').toLowerCase();
     const base = code.split('-')[0];
-    if (code.startsWith('tr') || base === 'tr') return 'tur';
-    if (code.startsWith('en') || base === 'en') return 'eng';
-    if (code.startsWith('de') || base === 'de') return 'deu';
-    if (code.startsWith('fr') || base === 'fr') return 'fre';
-    if (code.startsWith('ru') || base === 'ru') return 'rus';
     if (code.startsWith('es') || base === 'es') return 'spa';
-    if (code.startsWith('it') || base === 'it') return 'ita';
-    if (code.startsWith('ja') || base === 'ja') return 'jpn';
-    if (code.startsWith('pt') || base === 'pt') return 'por';
+    if (code.startsWith('en') || base === 'en') return 'eng';
   }
-  return 'eng';
+  return DEFAULT_LANGUAGE;
 }
 
 export function getStoredLanguagePreference() {

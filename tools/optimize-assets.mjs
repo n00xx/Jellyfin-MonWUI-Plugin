@@ -6,9 +6,9 @@
 // resident memory. The avatar set alone was 635 PNGs at 800x800 — roughly 48 MB for images the
 // UI renders as small circles.
 //
-// Filenames and the .png extension are preserved deliberately. avatarPicker.js builds avatar
-// URLs as `${AVATAR_DIR}/${n}.png`, and the static file middleware derives Content-Type from the
-// extension, so switching to WebP would need coordinated changes on both sides.
+// Filenames and the .png extension are preserved deliberately: the paths are hardcoded across
+// the player modules, and the static file middleware derives Content-Type from the extension,
+// so switching to WebP would need coordinated changes on both sides.
 //
 // Usage:
 //   node tools/optimize-assets.mjs            # dry run: report what would change
@@ -25,10 +25,16 @@ const APPLY = process.argv.includes('--apply');
 const SAMPLE = process.argv.includes('--sample');
 const SAMPLE_DIR = process.env.SAMPLE_DIR || path.join(ROOT, '.asset-sample');
 
-// Rendered at ~64-128 CSS px in the picker and header; 256 keeps a 2x retina buffer.
 const TARGETS = [
-  { dir: 'Resources/slider/src/images/avatar', maxSize: 256, label: 'avatars' },
   { dir: 'img', maxSize: 256, label: 'plugin icon', only: ['icon.png'] },
+  // Flat illustrations shipped as full-colour PNGs. Both are placeholders drawn at a fraction
+  // of their stored size, and both palette-quantise cleanly, so 512 stays as the 2x buffer.
+  {
+    dir: 'Resources/slider/src/images',
+    maxSize: 512,
+    label: 'placeholders',
+    only: ['defaultArt.png', 'nofoto.png'],
+  },
 ];
 
 async function encode(file, maxSize) {

@@ -164,7 +164,7 @@ export async function refreshPlaylist() {
       showNotification(
         `<i class="fas fa-masks-theater"></i> ${genres.length} ${config.languageLabels.genresApplied} ${items.length}/${effectiveLimit} ${config.languageLabels.tracks}`,
         2000,
-        "tur"
+        "info"
       );
     } else {
       if (excludedIdChunks.length === 0) {

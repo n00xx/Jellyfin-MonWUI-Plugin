@@ -16,7 +16,6 @@ import { attachMouseEvents } from "./modules/events.js";
 import { getSessionInfo, getAuthHeader, waitForAuthReadyStrict, isAuthReadyStrict, AUTH_PROFILE_CHANGED_EVENT, USERDATA_CHANGED_EVENT } from "../Plugins/JMSFusion/runtime/api.js";
 import { cacheGetUserDataMap, cachePatchItemUserData, cachePutUserDataItems, cachedFetchJson, createCachedItemDetailsFetcher, releaseSliderCacheMemory, startLibraryDeltaWatcher } from "./modules/sliderCache.js";
 import { forceHomeSectionsTop, forceSkinHeaderPointerEvents } from "./modules/positionOverrides.js";
-import { initAvatarSystem } from "./modules/userAvatar.js";
 import { initializeQualityBadges, primeQualityFromItems, annotateDomWithQualityHints } from "./modules/qualityBadges.js";
 import { startUpdatePolling } from "./modules/update.js";
 import { updateSlidePosition } from "./modules/positionUtils.js";
@@ -25,7 +24,6 @@ import { cleanupImageResourceRefs } from "./modules/imageResourceCleanup.js";
 import { isVisible, waitForAnyVisible } from "./modules/domVisibility.js";
 import { resolveSliderAssetHref } from "./modules/assetLinks.js";
 import { withServer } from "./modules/jfUrl.js";
-import { initUserProfileAvatarPicker } from "./modules/avatarPicker.js";
 import { startBackgroundCollectionIndexer, getBackgroundCollectionIndexerStatus } from "./modules/collectionIndexer.js";
 import { initProfileChooser, syncProfileChooserHeaderButtonVisibility } from "./modules/profileChooser.js";
 import { waitForNativeHomeSectionStability, waitForVisibleHomeSections } from "./modules/homeSectionNative.js";
@@ -1089,65 +1087,23 @@ function resolveCustomSplashGreetingPart(hour = getCustomSplashCurrentHour()) {
   return "Night";
 }
 
-function getCustomSplashGreetingFallback(lang = "tur", part = "Morning") {
+function getCustomSplashGreetingFallback(lang = "spa", part = "Morning") {
   const greetings = {
-    tur: {
-      Morning: "Günaydın",
-      Afternoon: "Tünaydın",
-      Evening: "İyi akşamlar",
-      Night: "İyi geceler"
-    },
     eng: {
       Morning: "Good morning",
       Afternoon: "Good afternoon",
       Evening: "Good evening",
       Night: "Hello"
     },
-    deu: {
-      Morning: "Guten Morgen",
-      Afternoon: "Guten Tag",
-      Evening: "Guten Abend",
-      Night: "Hallo"
-    },
-    fre: {
-      Morning: "Bonjour",
-      Afternoon: "Bon après-midi",
-      Evening: "Bonsoir",
-      Night: "Bonsoir"
-    },
-    ita: {
-      Morning: "Buongiorno",
-      Afternoon: "Buon pomeriggio",
-      Evening: "Buonasera",
-      Night: "Buonanotte"
-    },
-    jpn: {
-      Morning: "おはようございます",
-      Afternoon: "こんにちは",
-      Evening: "こんばんは",
-      Night: "こんばんは"
-    },
-    por: {
-      Morning: "Bom dia",
-      Afternoon: "Boa tarde",
-      Evening: "Boa noite",
-      Night: "Boa noite"
-    },
     spa: {
       Morning: "Buenos días",
       Afternoon: "Buenas tardes",
       Evening: "Buenas noches",
       Night: "Buenas noches"
-    },
-    rus: {
-      Morning: "Доброе утро",
-      Afternoon: "Добрый день",
-      Evening: "Добрый вечер",
-      Night: "Здравствуйте"
     }
   };
 
-  return splashTextValue(greetings?.[lang]?.[part] || greetings?.eng?.[part]);
+  return splashTextValue(greetings?.[lang]?.[part] || greetings?.spa?.[part]);
 }
 
 function getCurrentCustomSplashUserName() {
@@ -1179,29 +1135,13 @@ function getCurrentCustomSplashUserName() {
 
 function getCustomSplashLoadingFallback(title) {
   const safeTitle = String(title || "MonWui").trim() || "MonWui";
-  const lang = (typeof getDefaultLanguage === "function" ? getDefaultLanguage() : null) || "eng";
+  const lang = (typeof getDefaultLanguage === "function" ? getDefaultLanguage() : null) || "spa";
 
   switch (lang) {
     case "eng":
       return `${safeTitle} is starting`;
-    case "deu":
-      return `${safeTitle} wird vorbereitet`;
-    case "fre":
-      return `${safeTitle} se prepare`;
-    case "ita":
-      return `${safeTitle} si sta avviando`;
-    case "jpn":
-      return `${safeTitle} を準備しています`;
-    case "por":
-      return `${safeTitle} está iniciando`;
-    case "spa":
-      return `${safeTitle} se esta preparando`;
-    case "rus":
-      return `${safeTitle} подготавливается`;
-    case "tur":
-      return `${safeTitle} hazırlanıyor`;
     default:
-      return `${safeTitle} is starting`;
+      return `${safeTitle} se está iniciando`;
   }
 }
 
@@ -1224,7 +1164,7 @@ function buildCustomSplashCaption(title, labels = {}) {
   return defaultCaption;
 }
 
-function buildCustomSplashDisplayTitle(title, labels = {}, lang = "tur") {
+function buildCustomSplashDisplayTitle(title, labels = {}, lang = "spa") {
   const safeTitle = splashTextValue(title, "MonWui");
   const userName = getCurrentCustomSplashUserName();
   if (!userName) return safeTitle;
@@ -2460,7 +2400,7 @@ function installHomeTabSliderOnlyGate() {
 
 function __getLabelsSafe() {
   try {
-    const lang = (typeof getDefaultLanguage === "function" ? getDefaultLanguage() : null) || "eng";
+    const lang = (typeof getDefaultLanguage === "function" ? getDefaultLanguage() : null) || "spa";
     return (typeof getLanguageLabels === "function" ? getLanguageLabels(lang) : {}) || {};
   } catch {
     return {};
@@ -2887,17 +2827,6 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
     ]);
   }
 
-  function isAvatarPickerCssActive(cfg) {
-    return !!(
-      cfg.createAvatar ||
-      (window.location.hash || '').startsWith('#/userprofile')
-    ) || matchesAny([
-      '.jms-avatarBackdrop',
-      '.jms-avatarModal',
-      '.jms-avatarPickBtn'
-    ]);
-  }
-
   function isProfileChooserCssActive(cfg) {
     return cfg.enableProfileChooser !== false || matchesAny([
       '#jfProfileChooserOverlay',
@@ -3010,7 +2939,6 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
     const studioHubsCssEnabled = isStudioHubsCssActive(cfg);
     const detailsModalCssEnabled = isDetailsModalCssActive(cfg);
     const miniPopoverCssEnabled = isMiniPopoverCssActive(cfg);
-    const avatarPickerCssEnabled = isAvatarPickerCssActive(cfg);
     const profileChooserCssEnabled = isProfileChooserCssActive(cfg);
     const pauseFeatureCssEnabled = isPauseFeatureCssActive(cfg);
     const subtitleCustomizerCssEnabled = isSubtitleCustomizerCssActive(cfg);
@@ -3023,7 +2951,6 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
     syncCSS('/slider/src/studioHubs.css', 'jms-css-studiohubs', studioHubsCssEnabled);
     syncCSS('/slider/src/detailsModal.css', 'jms-css-detailsModal', detailsModalCssEnabled);
     syncCSS('/slider/src/studioHubsMini.css', 'jms-css-studioHubsMini', miniPopoverCssEnabled);
-    syncCSS('/slider/src/avatarPicker.css', 'jms-css-avatarPicker', avatarPickerCssEnabled);
     syncCSS('/slider/src/profileChooser.css', 'jms-css-profileChooser', profileChooserCssEnabled);
     syncCSS('/slider/src/subtitleCustomizer.css', 'jms-css-subtitleCustomizer', subtitleCustomizerCssEnabled);
     syncCSS(vmap[variant] || vmap.normalslider, 'jms-css-variant', sliderCssEnabled);
@@ -3047,9 +2974,6 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
     }
     if (!miniPopoverCssEnabled) {
       removeCssByHref(['slider/src/studioHubsMini.css']);
-    }
-    if (!avatarPickerCssEnabled) {
-      removeCssByHref(['slider/src/avatarPicker.css']);
     }
     if (!profileChooserCssEnabled) {
       removeCssByHref(['slider/src/profileChooser.css']);
@@ -3894,12 +3818,6 @@ function runNonCriticalUiBootOnce() {
       } catch {}
 
       try {
-        if (!window.cleanupAvatarSystem) {
-          window.cleanupAvatarSystem = initAvatarSystem();
-        }
-      } catch {}
-
-      try {
         const liveCfg = getMainConfig();
         if (liveCfg.enableNotifications !== false) {
           bootNotificationsOnce();
@@ -3924,8 +3842,6 @@ function runNonCriticalUiBootOnce() {
 
 forceSkinHeaderPointerEvents();
 forceHomeSectionsTop();
-const cleanupAvatarPicker = initUserProfileAvatarPicker();
-window.cleanupAvatarPicker = cleanupAvatarPicker;
 window.__jmsRefreshOptionalModules = (options = {}) => {
   return refreshOptionalModules(options);
 };

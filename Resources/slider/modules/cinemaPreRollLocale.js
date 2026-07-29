@@ -7,16 +7,9 @@ export function normalizeCinemaPreRollLanguage(raw) {
   const value = String(raw || "").trim().replace("_", "-");
   if (/^[a-z]{2}-[A-Z]{2}$/.test(value)) return value;
   const lower = value.toLowerCase();
-  if (lower === "tr" || lower === "tur") return "tr-TR";
   if (lower === "en" || lower === "eng") return "en-US";
-  if (lower === "de" || lower === "deu") return "de-DE";
-  if (lower === "fr" || lower === "fre" || lower === "fra") return "fr-FR";
-  if (lower === "ru" || lower === "rus") return "ru-RU";
-  if (lower === "es" || lower === "spa") return "es-ES";
-  if (lower === "it" || lower === "ita") return "it-IT";
-  if (lower === "ja" || lower === "jp" || lower === "jpn") return "ja-JP";
-  if (lower === "pt" || lower === "por") return "pt-BR";
-  return "tr-TR";
+  if (lower === "es" || lower === "spa") return "es-MX";
+  return "es-MX";
 }
 
 export function normalizeCinemaPreRollLanguageSetting(raw) {
@@ -57,7 +50,7 @@ export function resolveCinemaPreRollLocale(source = getConfig()) {
   const fallbackLanguage = (
     typeof navigator !== "undefined" && navigator.language
       ? navigator.language
-      : "tr-TR"
+      : "es-MX"
   );
   const languageSetting = normalizeCinemaPreRollLanguageSetting(cfg?.cinemaPreRollLanguage);
   const language = normalizeCinemaPreRollLanguage(
@@ -69,7 +62,7 @@ export function resolveCinemaPreRollLocale(source = getConfig()) {
   const customRegion = normalizeCinemaPreRollCustomRegion(cfg?.cinemaPreRollCustomRegion);
   const fallbackMode = normalizeCinemaPreRollFallbackMode(cfg?.cinemaPreRollFallbackMode);
   const fallbackRegion = normalizeCinemaPreRollFallbackRegion(cfg?.cinemaPreRollFallbackRegion);
-  const autoRegion = language.split("-")[1] || "TR";
+  const autoRegion = language.split("-")[1] || "MX";
 
   let regionMode = desiredMode;
   let region = "";

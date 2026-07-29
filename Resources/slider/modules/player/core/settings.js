@@ -21,22 +21,15 @@ export function createSettingsModal() {
     const languageDiv = document.createElement('div');
     languageDiv.className = 'setting-item';
     const languageLabel = document.createElement('label');
-    languageLabel.textContent = labels.defaultLanguage || 'Dil:';
+    languageLabel.textContent = labels.defaultLanguage || 'Idioma:';
     const languageSelect = document.createElement('select');
     languageSelect.name = 'defaultLanguage';
     const uiPref = getStoredLanguagePreference() || 'auto';
     const effective = getDefaultLanguage();
     const languages = [
-        { value: 'auto', label: labels.optionAuto || '🌐 Otomatik (Tarayıcı dili)' },
-        { value: 'tur', label: '🇹🇷 Türkçe' },
-        { value: 'eng', label: '🇬🇧 English' },
-        { value: 'spa', label: labels.optionEspanol || '🇪🇸 Español' },
-        { value: 'deu', label: '🇩🇪 Deutsch' },
-        { value: 'fre', label: '🇫🇷 Français' },
-        { value: 'rus', label: '🇷🇺 Русский' },
-        { value: 'ita', label: '🇮🇹 Italiano' },
-        { value: 'jpn', label: '🇯🇵 日本語' },
-        { value: 'por', label: '🇧🇷 Português' },
+        { value: 'auto', label: labels.optionAuto || '🌐 Automático (idioma del navegador)' },
+        { value: 'spa', label: labels.optionEspanol || '🇲🇽 Español (Latinoamérica)' },
+        { value: 'eng', label: labels.optionEnglish || '🇺🇸 English' },
     ];
 
     languages.forEach(lang => {

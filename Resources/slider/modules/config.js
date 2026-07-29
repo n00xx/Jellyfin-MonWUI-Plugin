@@ -814,26 +814,6 @@ export function getConfig() {
     homeSectionsTop: parseInt(localStorage.getItem('homeSectionsTop'), 10) || 0,
     dotPosterMode: localStorage.getItem('dotPosterMode') === 'true',
     shuffleSeedLimit: parseInt(localStorage.getItem('shuffleSeedLimit'), 10) || 1000,
-    createAvatar: localStorage.getItem('createAvatar') === 'true',
-    avatarWidth: parseInt(localStorage.getItem('avatarWidth'), 10) || 18,
-    avatarHeight: parseInt(localStorage.getItem('avatarHeight'), 10) || 18,
-    avatarFontSize: parseInt(localStorage.getItem('avatarFontSize'), 10) || 15,
-    avatarTextShadow: localStorage.getItem('avatarTextShadow') || '1px 1px 2px rgba(0,0,0,0.3)',
-    avatarColorMethod: localStorage.getItem('avatarColorMethod') || 'dynamic',
-    avatarSolidColor: localStorage.getItem('avatarSolidColor') || '#FF4081',
-    avatarGradient: localStorage.getItem('avatarGradient') || 'linear-gradient(135deg, #FF9A9E 0%, #FAD0C4 100%)',
-    avatarFontFamily: localStorage.getItem('avatarFontFamily') || 'Righteous',
-    avatarStyle: localStorage.getItem('avatarStyle') || 'dicebear',
-    dicebearStyle: localStorage.getItem('dicebearStyle') || 'adventurer',
-    dicebearBackgroundColor: localStorage.getItem('dicebearBackgroundColor') || 'transparent',
-    dicebearRadius: parseInt(localStorage.getItem('dicebearRadius'), 10) || 50,
-    avatarCacheDuration: parseInt(localStorage.getItem('avatarCacheDuration'), 10) || 10000,
-    avatarScale: parseFloat(localStorage.getItem('avatarScale')) || 4,
-    dicebearBackgroundEnabled: localStorage.getItem('dicebearBackgroundEnabled') === 'true' ? true : false,
-    dicebearPosition: localStorage.getItem('dicebearPosition') !== 'false',
-    autoRefreshAvatar: localStorage.getItem('autoRefreshAvatar') !== 'false',
-    avatarRefreshTime: parseInt(localStorage.getItem('avatarRefreshTime'), 10) || 10,
-    randomDicebearAvatar: localStorage.getItem('randomDicebearAvatar') !== 'false',
     previewModal: localStorage.getItem('previewModal') !== 'false',
     allPreviewModal: localStorage.getItem('allPreviewModal') !== 'false',
     previewTrailerStartMuted: localStorage.getItem('previewTrailerStartMuted') === 'true',
@@ -952,19 +932,6 @@ export function getConfig() {
     enableQualityBadges: localStorage.getItem('enableQualityBadges') !== 'false',
     enableTrailerThenVideo,
     disableAllPlayback,
-    dicebearParams: (() => {
-  try {
-    const raw = localStorage.getItem('dicebearParams');
-    if (raw === '[object Object]') {
-      localStorage.removeItem('dicebearParams');
-      return {};
-    }
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) {
-    console.error('Dicebear params parse error:', e);
-    return {};
-  }
-})(),
 
     enableNotifications: localStorage.getItem('enableNotifications') !== 'false',
     enableToastNew: localStorage.getItem('enableToastNew') !== 'false',

@@ -32,7 +32,6 @@ function getNotificationClass(type) {
     error: 'error',
     warning: 'warning',
     info: 'info',
-    tur: 'info',
     kontrol: 'info',
     addlist: 'addlist',
     db: 'db',

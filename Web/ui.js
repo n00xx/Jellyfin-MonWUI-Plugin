@@ -123,7 +123,7 @@
 
   const state = {
     labels: fallbackLabels,
-    lang: "eng"
+    lang: "spa"
   };
 
   function getByPath(obj, pathExpr) {
@@ -168,15 +168,8 @@
 
   function getLanguageDisplayName(code) {
     const map = {
-      tur: "Turkce",
-      eng: "English",
-      deu: "Deutsch",
-      fre: "Francais",
-      rus: "Русский",
-      spa: "Espanol",
-      ita: "Italiano",
-      jpn: "日本語",
-      por: "Português"
+      spa: "Español (Latinoamérica)",
+      eng: "English"
     };
     return map[code] || String(code || "").toUpperCase() || "Auto";
   }
@@ -190,20 +183,20 @@
       const mod = await import(langModuleUrl);
       const lang = typeof mod.getEffectiveLanguage === "function"
         ? mod.getEffectiveLanguage()
-        : (typeof mod.detectBrowserLanguage === "function" ? mod.detectBrowserLanguage() : "eng");
+        : (typeof mod.detectBrowserLanguage === "function" ? mod.detectBrowserLanguage() : "spa");
       const labels = typeof mod.getLanguageLabels === "function"
         ? mod.getLanguageLabels(lang)
         : null;
 
       if (labels) {
         state.labels = labels;
-        state.lang = lang || "eng";
+        state.lang = lang || "spa";
         return;
       }
     } catch {}
 
     state.labels = fallbackLabels;
-    state.lang = "eng";
+    state.lang = "spa";
   }
 
   function showMessage(view, text, kind = "") {

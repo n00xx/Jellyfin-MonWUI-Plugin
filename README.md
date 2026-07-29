@@ -89,7 +89,7 @@ In short: if the client does not render `/web/index.html`, JMSFusion cannot run 
 | <div><img src="https://github.com/user-attachments/assets/ec9344f3-2080-423b-8f82-0b6b2e6f3a01" width="100%"/><br/><sub><b>Normal View</b></sub></div> | <div><img src="https://github.com/user-attachments/assets/063cef79-2749-4c88-a31c-655a753dfe12" width="100%"/><br/><sub><b>Pause Screen</b></sub></div> |
 | <div><img src="https://github.com/user-attachments/assets/5218f887-15f0-43ee-82c1-eceab3e7793b" width="100%"/><br/><sub><b>Notification Modal</b></sub></div> | <div><img src="https://github.com/user-attachments/assets/d6d8300b-f0f0-4c3b-a9b8-1d2b9c630e9a" width="100%"/><br/><sub><b>Age Badge</b></sub></div> |
 | <div><img src="https://github.com/user-attachments/assets/79571773-d7b6-4850-816f-822278634698" width="100%"/><br/><sub><b>HoverTrailers</b></sub></div> | <div><img src="https://github.com/user-attachments/assets/94d78061-b34b-4782-bafb-04df89647df3" width="100%"/><br/><sub><b>Popovers</b></sub></div> |
-| <div><img src="https://github.com/user-attachments/assets/4b0f0192-3ccb-4c74-bb83-1229072db4a6" width="100%"/><br/><sub><b>Choose Avatar</b></sub></div> | <div><img src="https://github.com/user-attachments/assets/b5f6de0d-06fe-4cf9-99ee-f9415967806a" width="100%"/><br/><sub><b>Parental PIN Control</b></sub></div> |
+| <div><img src="https://github.com/user-attachments/assets/b5f6de0d-06fe-4cf9-99ee-f9415967806a" width="100%"/><br/><sub><b>Parental PIN Control</b></sub></div> | |
 
 </details>
 
@@ -100,7 +100,7 @@ In short: if the client does not render `/web/index.html`, JMSFusion cannot run 
 | Home screen | User-specific slider lists, automatic row refresh, custom API query control, manual positioning, and four slider layouts: Compact, Normal, Full Screen, and Peak |
 | Discovery   | Details overlay, hover trailers, compact popover previews, personal recommendations, genre/director/recent rows, and studio hubs                                 |
 | Metadata    | Quality badges, ratings, maturity indicators, richer info blocks, cast/director data, subtitle and language info, and provider links                             |
-| Profiles    | Netflix-style profile chooser, avatar generation, and built-in avatar selection                                                                                  |
+| Profiles    | Netflix-style profile chooser and fast profile switching, using Jellyfin's own user images                                                       |
 | Playback    | GMMP music player, lyrics support, subtitle customization, Netflix-style pause screen, parental PIN control, and Smart Pause                                     |
 
 ---
@@ -112,10 +112,10 @@ In short: if the client does not render `/web/index.html`, JMSFusion cannot run 
 * **Home enhancements** such as hero cards, enhanced details modal, recommendations, and metadata-rich UI elements
 * **Hover preview system** with trailer playback and lightweight popover previews
 * **Playback upgrades** including Smart Pause, metadata overlays, GMMP music playback, subtitle tools, and **parental PIN control**
-* **Profile personalization** with avatar systems and fast profile switching
+* **Profile personalization** with fast profile switching
 * **Library & notifications** including studio hubs, watchlist integration, and notification system
 * **Trailer utilities** including trailer downloading via **yt-dlp** and trailer integration through **NFO files**
-* **Advanced utilities** such as backup/restore, multilingual UI, and admin-level controls
+* **Advanced utilities** such as backup/restore, English / Latin American Spanish UI, and admin-level controls
 
 ---
 

@@ -2254,17 +2254,8 @@ function getEffectiveLang3() {
 
   const base = l.split('-')[0];
 
-  const map2to3 = {
-    tr: 'tur',
-    en: 'eng',
-    de: 'deu',
-    fr: 'fre',
-    ru: 'rus',
-    es: 'spa',
-  };
-  if (['tur','eng','deu','fre','rus','spa'].includes(base)) return base;
-  if (map2to3[base]) return map2to3[base];
-  return 'eng';
+  if (base === 'eng' || base === 'en') return 'eng';
+  return 'spa';
 }
 
 function getLangKeyCandidates() {
@@ -2273,13 +2264,13 @@ function getLangKeyCandidates() {
 
   const lower = raw.toLowerCase();
   const base = lower.split('-')[0];
-  const map2to3 = { tr:'tur', en:'eng', de:'deu', fr:'fre', ru:'rus', es:'spa' };
+  const map2to3 = { en: 'eng', es: 'spa' };
   const three = map2to3[base] || base;
   const out = [];
   if (lower) out.push(lower);
   if (base)  out.push(base);
   if (three) out.push(three);
-  out.push('eng', 'tur');
+  out.push('spa', 'eng');
 
   return Array.from(new Set(out.filter(Boolean)));
 }
@@ -2310,9 +2301,9 @@ function formatBecauseYouWatchedTitle(seedName) {
   let tpl = pickTpl(raw);
   if (!tpl) {
     const cand = getLangKeyCandidates();
-    if (cand.includes('de') || cand.includes('deu')) tpl = "Weil du {title} angesehen hast";
-    else if (cand.includes('eng') || cand.includes('en')) tpl = "Because you watched {title}";
-    else tpl = "{title} izlediğiniz için";
+    tpl = (cand.includes('eng') || cand.includes('en'))
+      ? "Because you watched {title}"
+      : "Porque viste {title}";
   }
 
   return String(tpl).replace("{title}", title);

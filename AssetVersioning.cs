@@ -316,15 +316,11 @@ namespace Jellyfin.Plugin.JMSFusion
     for (var i = 0; i < candidates.length; i += 1) {
       var value = String(candidates[i] || "").toLowerCase();
       var base = value.split(/[-_]/)[0];
-      if (value === "tur" || base === "tr") return "tur";
-      if (value === "eng" || base === "en") return "eng";
-      if (value === "deu" || base === "de") return "deu";
-      if (value === "fre" || value === "fra" || base === "fr") return "fre";
       if (value === "spa" || base === "es") return "spa";
-      if (value === "rus" || base === "ru") return "rus";
+      if (value === "eng" || base === "en") return "eng";
     }
 
-    return "tur";
+    return "spa";
   }
 
   var lang = "";
@@ -341,44 +337,20 @@ namespace Jellyfin.Plugin.JMSFusion
   function resolveLangKey(raw) {
     var value = String(raw || "").toLowerCase();
     if (!value || value === "auto") return detectBrowserLangKey();
-    if (value === "tur" || value === "eng" || value === "deu" || value === "fre" || value === "spa" || value === "rus") {
-      return value;
-    }
-    if (value === "fra") return "fre";
+    if (value === "spa" || value === "eng") return value;
     var base = value.split(/[-_]/)[0];
-    if (base === "tr") return "tur";
     if (base === "en") return "eng";
-    if (base === "de") return "deu";
-    if (base === "fr") return "fre";
     if (base === "es") return "spa";
-    if (base === "ru") return "rus";
-    return detectBrowserLangKey();
+    // Codes of languages this plugin no longer ships fall through to the default.
+    return "spa";
   }
 
   var captions = {
-    tur: "MonWui hazırlanıyor",
-    eng: "MonWui is starting",
-    deu: "MonWui wird vorbereitet",
-    fre: "MonWui se prépare",
-    spa: "MonWui se está preparando",
-    rus: "MonWui подготавливается"
+    spa: "MonWui se está iniciando",
+    eng: "MonWui is starting"
   };
 
   var splashLocale = {
-    tur: {
-      stageLock: "KİLİT",
-      detailLock: "Kabuk katmanı sabitleniyor",
-      stageStructure: "OMURGA",
-      detailStructure: "Arayüz omurgası senkrona giriyor",
-      stageTakeover: "DEVRALMA",
-      detailTakeover: "{title} motoru kontrolü alıyor",
-      stageFlow: "AKIŞ",
-      detailFlow: "Gerçek zamanlı yükleme metrikleri eşleniyor",
-      stageFallback: "GEÇİŞ",
-      detailFallback: "Varsayılan Jellyfin arayüzü açılıyor",
-      stageReady: "HAZIR",
-      detailReady: "{title} çevrimiçi"
-    },
     eng: {
       stageLock: "LOCK",
       detailLock: "Shell layer is locking in",
@@ -393,100 +365,34 @@ namespace Jellyfin.Plugin.JMSFusion
       stageReady: "READY",
       detailReady: "{title} online"
     },
-    deu: {
-      stageLock: "SPERRE",
-      detailLock: "Die Shell-Schicht verriegelt sich",
-      stageStructure: "KERN",
-      detailStructure: "Der UI-Kern geht in den Sync",
-      stageTakeover: "UEBERNAHME",
-      detailTakeover: "{title} uebernimmt die Kontrolle",
-      stageFlow: "FLUSS",
-      detailFlow: "Echtzeit-Lademetriken werden abgeglichen",
-      stageFallback: "RUECKFALL",
-      detailFallback: "Wechsel zur Jellyfin-Oberflaeche",
-      stageReady: "BEREIT",
-      detailReady: "{title} ist online"
-    },
-    fre: {
-      stageLock: "VERROU",
-      detailLock: "La couche shell se verrouille",
-      stageStructure: "NOYAU",
-      detailStructure: "Le noyau de l'interface entre en synchro",
-      stageTakeover: "PRISE",
-      detailTakeover: "Le moteur {title} prend le controle",
-      stageFlow: "FLUX",
-      detailFlow: "Les metriques de chargement en temps reel se synchronisent",
-      stageFallback: "REPLI",
-      detailFallback: "Retour a l'interface Jellyfin",
-      stageReady: "PRET",
-      detailReady: "{title} est en ligne"
-    },
     spa: {
       stageLock: "BLOQUEO",
-      detailLock: "La capa shell se esta fijando",
-      stageStructure: "NUCLEO",
-      detailStructure: "El nucleo de la interfaz entra en sincronizacion",
+      detailLock: "La capa shell se está fijando",
+      stageStructure: "NÚCLEO",
+      detailStructure: "El núcleo de la interfaz entra en sincronización",
       stageTakeover: "CONTROL",
       detailTakeover: "El motor de {title} toma el control",
       stageFlow: "FLUJO",
-      detailFlow: "Las metricas de carga en tiempo real se estan sincronizando",
+      detailFlow: "Las métricas de carga en tiempo real se están sincronizando",
       stageFallback: "RESPALDO",
       detailFallback: "Volviendo a la interfaz de Jellyfin",
       stageReady: "LISTO",
-      detailReady: "{title} en linea"
-    },
-    rus: {
-      stageLock: "БЛОК",
-      detailLock: "Оболочка фиксируется",
-      stageStructure: "ЯДРО",
-      detailStructure: "Ядро интерфейса входит в синхронизацию",
-      stageTakeover: "ЗАХВАТ",
-      detailTakeover: "Движок {title} берёт управление",
-      stageFlow: "ПОТОК",
-      detailFlow: "Метрики загрузки в реальном времени синхронизируются",
-      stageFallback: "РЕЗЕРВ",
-      detailFallback: "Переход к интерфейсу Jellyfin",
-      stageReady: "ГОТОВО",
-      detailReady: "{title} в сети"
+      detailReady: "{title} en línea"
     }
   };
 
   var greetingLocale = {
-    tur: {
-      morning: "Günaydın",
-      afternoon: "Tünaydın",
-      evening: "İyi akşamlar",
-      night: "İyi geceler"
-    },
     eng: {
       morning: "Good morning",
       afternoon: "Good afternoon",
       evening: "Good evening",
       night: "Hello"
     },
-    deu: {
-      morning: "Guten Morgen",
-      afternoon: "Guten Tag",
-      evening: "Guten Abend",
-      night: "Hallo"
-    },
-    fre: {
-      morning: "Bonjour",
-      afternoon: "Bon après-midi",
-      evening: "Bonsoir",
-      night: "Bonsoir"
-    },
     spa: {
       morning: "Buenos días",
       afternoon: "Buenas tardes",
       evening: "Buenas noches",
       night: "Buenas noches"
-    },
-    rus: {
-      morning: "Доброе утро",
-      afternoon: "Добрый день",
-      evening: "Добрый вечер",
-      night: "Здравствуйте"
     }
   };
 
@@ -524,7 +430,7 @@ namespace Jellyfin.Plugin.JMSFusion
     var safeUserName = text(userName);
     if (!safeUserName) return customTitle;
 
-    var greetingPack = greetingLocale[resolvedLang] || greetingLocale.eng || greetingLocale.tur;
+    var greetingPack = greetingLocale[resolvedLang] || greetingLocale.spa;
     var greetingPart = resolveGreetingPartByHour(getSplashHourNow());
     var greetingText = text(greetingPack && greetingPack[greetingPart]);
     return text(greetingText ? greetingText + " " + safeUserName : safeUserName, customTitle);
@@ -610,8 +516,8 @@ namespace Jellyfin.Plugin.JMSFusion
   } catch {}
 
   var resolvedLang = resolveLangKey(lang);
-  var localeCopy = splashLocale[resolvedLang] || splashLocale.eng;
-  var captionTemplate = captions[resolvedLang] || captions.eng || "MonWui is starting";
+  var localeCopy = splashLocale[resolvedLang] || splashLocale.spa;
+  var captionTemplate = captions[resolvedLang] || captions.spa || "MonWui se está iniciando";
   var caption = captionTemplate.indexOf(defaultTitle) !== -1
     ? captionTemplate.replace(defaultTitle, customTitle)
     : captionTemplate;

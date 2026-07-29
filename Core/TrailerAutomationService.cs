@@ -21,7 +21,7 @@ public sealed class TrailerAutomationService
     private const string DefaultIncludeTypes = "Movie,Series,Season,Episode";
     private const int DefaultPageSize = 200;
     private const double DefaultSleepSecs = 1.0;
-    private const string DefaultPreferredLang = "tr-TR";
+    private const string DefaultPreferredLang = "es-MX";
     private const string DefaultFallbackLang = "en-US";
     private const int DefaultMaxConcurrentDownloads = 1;
     private const int MinConcurrentDownloads = 1;

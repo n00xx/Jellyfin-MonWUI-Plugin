@@ -14,7 +14,6 @@ import { createStatusRatingPanel, createActorPanel, createDirectorPanel, createI
 import { createQueryPanel } from './settings/apiPage.js';
 import { createPausePanel } from './settings/pausePage.js';
 import { createButtonsPanel } from './settings/buttonsPage.js';
-import { createAvatarPanel } from './settings/avatarPage.js';
 import { createNotificationsPanel } from './settings/notificationsPage.js';
 import { createStudioHubsPanel } from './settings/studioHubsPage.js';
 import { createHoverTrailerPanel } from './settings/hoverTrailerPage.js';
@@ -161,7 +160,6 @@ export function createSettingsModal() {
       ? createTab('serr', 'fa-clapperboard', labels.serrSettingsTab || 'Seerr & Arr Entegrasyonu')
       : null;
     const detailsModalTab = createTab('details-modal', 'fa-circle-info', labels.detailsModalSettingsTab || 'Detaylar Modülü Ayarları');
-    const avatarTab = createTab('avatar', 'fa-user', labels.avatarCreateInput || 'Avatar Ayarları');
     const parentalPinTab = config?.currentUserIsAdmin
       ? createTab('parental-pin', 'fa-key', labels.parentalPinTab || 'PIN Kontrolü Ayarları')
       : null;
@@ -173,7 +171,7 @@ export function createSettingsModal() {
     const tabs = [
         mainTab, sliderTab, queryTab, musicTab, studioTab, profileChooserTab,
         pauseTab, watchlistSettingsTab, hoverTab, cinemaPreRollTab, trailersTab, notificationsTab, serrTab, detailsModalTab,
-        avatarTab, parentalPinTab, positionTab, dbManagementTab, exporterTab, aboutTab
+        parentalPinTab, positionTab, dbManagementTab, exporterTab, aboutTab
     ].filter(Boolean);
     tabContainer.append(...tabs);
 
@@ -188,7 +186,6 @@ export function createSettingsModal() {
     const cinemaPreRollPanel = createCinemaPreRollPanel(config, labels);
     const trailersPanel = createTrailersPanel(config, labels);
     const studioPanel = createStudioHubsPanel(config, labels);
-    const avatarPanel = createAvatarPanel(config, labels);
     const statusRatingPanel = createStatusRatingPanel(config, labels);
     const actorPanel = createActorPanel(config, labels);
     const directorPanel = createDirectorPanel(config, labels);
@@ -217,7 +214,6 @@ export function createSettingsModal() {
         pausePanel,
         studioPanel,
         hoverPanel,
-        avatarPanel,
         notificationsPanel,
         providerPanel
     });
@@ -240,7 +236,7 @@ export function createSettingsModal() {
     [
         mainPanel, sliderPanel, queryPanel, musicPanel, studioPanel, profileChooserPanel,
         pausePanel, watchlistSettingsPanel, hoverPanel, cinemaPreRollPanel, trailersPanel, notificationsPanel, serrPanel, detailsModalPanel,
-        avatarPanel, parentalPinPanel, positionPanel, dbManagementPanel, exporterPanel, aboutPanel
+        parentalPinPanel, positionPanel, dbManagementPanel, exporterPanel, aboutPanel
     ].filter(Boolean).forEach(panel => {
         panel.style.display = 'none';
     });
@@ -249,14 +245,14 @@ export function createSettingsModal() {
     const panels = [
         mainPanel, sliderPanel, queryPanel, musicPanel, studioPanel, profileChooserPanel,
         pausePanel, watchlistSettingsPanel, hoverPanel, cinemaPreRollPanel, trailersPanel, notificationsPanel, serrPanel, detailsModalPanel,
-        avatarPanel, parentalPinPanel, positionPanel, dbManagementPanel, exporterPanel, aboutPanel
+        parentalPinPanel, positionPanel, dbManagementPanel, exporterPanel, aboutPanel
     ].filter(Boolean);
     tabContent.append(...panels);
 
     const interactiveTabs = [
         mainTab, sliderTab, queryTab, musicTab, studioTab, profileChooserTab,
         pauseTab, watchlistSettingsTab, hoverTab, cinemaPreRollTab, trailersTab, notificationsTab, serrTab, detailsModalTab,
-        avatarTab, parentalPinTab, positionTab, dbManagementTab, exporterTab, aboutTab
+        parentalPinTab, positionTab, dbManagementTab, exporterTab, aboutTab
     ].filter(Boolean);
     interactiveTabs.forEach(tab => {
         tab.addEventListener('click', () => {
@@ -875,19 +871,6 @@ function createLanguagePanel(config, labels) {
     return panel;
 }
 
-function createAvatarPage(config, labels) {
-  const panel = document.createElement('div');
-  panel.id = 'avatar-panel';
-  panel.className = 'avatar-panel';
-
-  const section = createSection();
-  const avatarPage = createAvatarPanel(config, labels);
-  avatarPage.render();
-
-  panel.appendChild(section);
-  return panel;
-}
-
 function createLogoTitlePage(config, labels) {
   const panel = document.createElement('div');
   panel.id = 'logoTitle-panel';
@@ -1237,7 +1220,6 @@ function createMainSettingsPanel(labels, panels) {
         extractContainerByInput(panels.profileChooserPanel, 'enableProfileChooser', '.fsetting-item'),
         extractCheckboxPair(panels.musicPanel, 'enabledGmmp'),
         extractContainerByInput(panels.hoverPanel, 'allPreviewModal', '.setting-item'),
-        extractContainerByInput(panels.avatarPanel, 'createAvatar', '.setting-item'),
         extractContainerByInput(panels.notificationsPanel, 'enableNotifications', '.setting-item')
     ].filter(Boolean).forEach((node) => {
         enablesSection.appendChild(node);
@@ -1882,21 +1864,18 @@ async function applyGlobalSettingsLockUI({
 
   const modal = document.getElementById('settings-modal');
   if (modal) {
-    const avatarPanel = modal.querySelector('#avatar-panel');
-    const avatarAllowed = new Set();
-    if (avatarPanel) {
-      avatarPanel.querySelectorAll('input, select, textarea, button').forEach(el => avatarAllowed.add(el));
-    }
-
-    if (themeToggleBtn) avatarAllowed.add(themeToggleBtn);
+    // Controls that stay editable even when the admin forces global settings:
+    // they are per-device preferences, not part of the published snapshot.
+    const alwaysAllowed = new Set();
+    if (themeToggleBtn) alwaysAllowed.add(themeToggleBtn);
     const settingsHotkeyInput = modal.querySelector('#settingsHotkey');
     const settingsHotkeyReset = modal.querySelector('#settingsHotkeyReset');
-    if (settingsHotkeyInput) avatarAllowed.add(settingsHotkeyInput);
-    if (settingsHotkeyReset) avatarAllowed.add(settingsHotkeyReset);
+    if (settingsHotkeyInput) alwaysAllowed.add(settingsHotkeyInput);
+    if (settingsHotkeyReset) alwaysAllowed.add(settingsHotkeyReset);
 
     modal.querySelectorAll('input, select, textarea, button').forEach(el => {
       if (el.classList.contains('settings-close')) return;
-      if (avatarAllowed.has(el)) return;
+      if (alwaysAllowed.has(el)) return;
       el.disabled = true;
       el.style.pointerEvents = "none";
       el.style.opacity = "0.6";

@@ -7,8 +7,6 @@ import {
   persistAuthSnapshotFromApiClient,
   getAuthHeader,
 } from "../../Plugins/JMSFusion/runtime/api.js";
-import { getRandomAvatarUrl } from "./avatarPicker.js";
-import { createConfiguredUserAvatar } from "./userAvatar.js";
 import { saveCredentials, saveApiKey, clearCredentials } from "../../Plugins/JMSFusion/runtime/auth.js";
 import { enhanceFormAccessibility } from "./accessibility.js";
 import { findHeaderMountTarget, getHeaderMountWaitSelector } from "./headerCompat.js";
@@ -810,34 +808,6 @@ function avatarFallbackHtml(name, { big = false } = {}) {
   return `<div class="jf-profile-fallback${big ? " big" : ""}">${escapeHtml(initial)}</div>`;
 }
 
-function avatarSeedForUser(user) {
-  const id = String(user?.Id || "").trim();
-  const name = String(user?.Name || user?.userName || "").trim();
-  return id || name || "profile";
-}
-
-function getProfileAvatarRenderSize(slot, fallback = 64) {
-  const rect = slot?.getBoundingClientRect?.() || null;
-  const measured = Math.round(
-    Math.max(
-      rect?.width || 0,
-      rect?.height || 0,
-      slot?.clientWidth || 0,
-      slot?.clientHeight || 0
-    )
-  );
-  if (measured > 0) return measured;
-  if (slot?.classList?.contains("jf-profile-header-avatar")) return 28;
-  if (slot?.classList?.contains("jf-profile-login-avatar")) return 120;
-  if (slot?.classList?.contains("jf-profile-avatar")) return 110;
-  return Math.min(Math.max(Number(fallback) || 64, 24), 128);
-}
-
-function resetProfileAvatarSlotState(slot) {
-  if (!slot?.classList) return;
-  slot.classList.remove("jf-profile-header-avatar-dicebear");
-}
-
 function hasRenderableAvatarContent(slot) {
   if (!slot?.isConnected) return false;
   try {
@@ -860,7 +830,6 @@ function isCustomSplashBlockingProfileHeader() {
 function setAvatarFallback(slot, user, { requestId, big = false } = {}) {
   if (!slot) return;
   if (requestId && slot.getAttribute("data-avatar-request") !== requestId) return;
-  resetProfileAvatarSlotState(slot);
   slot.innerHTML = avatarFallbackHtml(user?.Name || user?.userName || "P", { big });
 }
 
@@ -877,7 +846,6 @@ function loadAvatarIntoSlot(slot, url, { requestId, eager = false, onError } = {
 
   img.addEventListener("load", () => {
     if (slot.getAttribute("data-avatar-request") !== requestId) return;
-    resetProfileAvatarSlotState(slot);
     slot.replaceChildren(img);
   }, { once: true });
 
@@ -889,71 +857,8 @@ function loadAvatarIntoSlot(slot, url, { requestId, eager = false, onError } = {
   img.src = url;
 }
 
-async function assignRandomAvatarToSlot(slot, user, { requestId, eager = false, big = false } = {}) {
-  const randomUrl = await getRandomAvatarUrl(avatarSeedForUser(user)).catch(() => "");
-  if (!slot || slot.getAttribute("data-avatar-request") !== requestId) return;
-  if (!randomUrl) {
-    setAvatarFallback(slot, user, { requestId, big });
-    return;
-  }
-
-  loadAvatarIntoSlot(slot, randomUrl, {
-    requestId,
-    eager,
-    onError: () => setAvatarFallback(slot, user, { requestId, big }),
-  });
-}
-
-async function assignGeneratedAvatarToSlot(slot, user, { requestId, size = 64 } = {}) {
-  if (!slot) return false;
-  try {
-    if ((getConfig?.() || {}).createAvatar === false) return false;
-
-    const avatar = await createConfiguredUserAvatar(user, {
-      size: getProfileAvatarRenderSize(slot, size),
-      fitSlot: true,
-      scale: 1,
-      fixedPosition: false,
-      animate: false,
-    });
-
-    if (!avatar || slot.getAttribute("data-avatar-request") !== requestId) return false;
-
-    const isSvgAvatar = avatar.tagName?.toLowerCase?.() === "svg";
-    const isHeaderDicebear = !!(
-      isSvgAvatar &&
-      slot.classList?.contains("jf-profile-header-avatar")
-    );
-
-    slot.classList.toggle("jf-profile-header-avatar-dicebear", isHeaderDicebear);
-    avatar.classList.add("custom-user-avatar", "jf-profile-generated-avatar");
-    avatar.style.width = "100%";
-    avatar.style.height = "100%";
-    avatar.style.maxWidth = "100%";
-    avatar.style.maxHeight = "100%";
-    avatar.style.margin = "0";
-    avatar.style.opacity = "1";
-    avatar.style.transition = "none";
-
-    if (isSvgAvatar) {
-      avatar.setAttribute("width", "100%");
-      avatar.setAttribute("height", "100%");
-      avatar.style.display = "block";
-    }
-
-    slot.replaceChildren(avatar);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function assignPreferredFallbackAvatarToSlot(slot, user, opts = {}) {
-  const usedGeneratedAvatar = await assignGeneratedAvatarToSlot(slot, user, opts).catch(() => false);
-  if (usedGeneratedAvatar) return;
-  await assignRandomAvatarToSlot(slot, user, opts);
-}
-
+// Avatars come from Jellyfin's own user image (which any avatar plugin overrides).
+// setAvatarFallback paints the initial up front, so every failure path just leaves it in place.
 function renderProfileAvatarSlot(slot, user, { size = 220, eager = false, big = false, primaryImageTag } = {}) {
   if (!slot) return;
 
@@ -962,29 +867,22 @@ function renderProfileAvatarSlot(slot, user, { size = 220, eager = false, big = 
   setAvatarFallback(slot, user, { requestId, big });
 
   const userId = String(user?.Id || "").trim();
+  if (!userId) return;
+
   const tag = getUserPrimaryImageTag({
     ...user,
     PrimaryImageTag: primaryImageTag ?? user?.PrimaryImageTag,
   });
-  if (!userId) {
-    assignPreferredFallbackAvatarToSlot(slot, user, { requestId, size, eager, big }).catch(() => {});
-    return;
-  }
 
   const url = userAvatarUrl({ Id: userId, PrimaryImageTag: tag }, size);
-  if (!url) {
-    assignPreferredFallbackAvatarToSlot(slot, user, { requestId, size, eager, big }).catch(() => {});
-    return;
-  }
+  if (!url) return;
 
   loadAvatarIntoSlot(slot, url, {
     requestId,
     eager,
     onError: () => {
       clearRememberedPrimaryImageTag(userId, tag);
-      assignPreferredFallbackAvatarToSlot(slot, user, { requestId, size, eager, big }).catch(() => {
-        setAvatarFallback(slot, user, { requestId, big });
-      });
+      setAvatarFallback(slot, user, { requestId, big });
     },
   });
 }

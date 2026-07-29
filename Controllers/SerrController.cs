@@ -4188,24 +4188,20 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
         private static string NormalizeLanguage(string? value)
         {
             var lang = (value ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(lang)) return "tr";
+            if (string.IsNullOrWhiteSpace(lang)) return "es";
             return lang.Length > 12 ? lang[..12] : lang;
         }
 
         private static string NormalizeTmdbLanguage(string? value)
         {
             var lang = NormalizeLanguage(value).Replace('_', '-').Trim();
-            if (string.IsNullOrWhiteSpace(lang)) return "tr-TR";
+            if (string.IsNullOrWhiteSpace(lang)) return "es-MX";
 
             var lower = lang.ToLowerInvariant();
             return lower switch
             {
-                "tur" or "tr" => "tr-TR",
                 "eng" or "en" => "en-US",
-                "deu" or "ger" or "de" => "de-DE",
-                "fre" or "fra" or "fr" => "fr-FR",
-                "spa" or "es" => "es-ES",
-                "rus" or "ru" => "ru-RU",
+                "spa" or "es" => "es-MX",
                 _ => lang.Length == 2 ? lower + "-" + lower.ToUpperInvariant() : lang
             };
         }
