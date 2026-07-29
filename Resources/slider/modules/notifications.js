@@ -8,6 +8,7 @@ import { faIconHtml } from "./faIcons.js";
 import { openDetailsModal } from "./detailsModalLoader.js";
 import { applyHeaderIconButtonMode, findHeaderMountTarget } from "./headerCompat.js";
 import { ensureSerrNotificationsTab, getCachedSerrNotificationCount, markSerrNotificationsSeen, refreshSerrNotifications, renderSerrNotifications, scheduleSerrNotificationsPoll, stopSerrNotificationsPoll } from "./seerr/notificationsPanel.js";
+import { ensureSerrIssuesTab, refreshSerrIssues, removeSerrIssuesTab } from "./seerr/issuesPanel.js";
 
 const config = getConfig();
 let __castModulePromise = null;
@@ -38,9 +39,13 @@ function isSerrArrIntegrationEnabled() {
 export function syncSerrNotificationsIntegration() {
   if (isSerrArrIntegrationEnabled()) {
     ensureSerrNotificationsTab({ bindNotifTabButton });
+    // Whether the issues tab exists depends on data, so it resolves on its own schedule; the panel
+    // stays usable while it does.
+    void ensureSerrIssuesTab({ bindNotifTabButton });
     scheduleSerrNotificationsPoll();
   } else {
     stopSerrNotificationsPoll();
+    removeSerrIssuesTab();
   }
   updateBadge();
 }
@@ -789,6 +794,10 @@ function activateNotifTab(tabName = "new") {
       void refreshSerrNotifications({ render: true, includeDownloads: true }).then(() => markSerrNotificationsSeen());
     }
   }
+
+  if (tabName === "issues" && isSerrArrIntegrationEnabled()) {
+    void refreshSerrIssues({ render: true });
+  }
 }
 
 function bindNotifTabButton(tabBtn) {
@@ -1098,6 +1107,7 @@ function openModal() {
   renderNotifications();
   if (isSerrArrIntegrationEnabled()) {
     ensureSerrNotificationsTab({ bindNotifTabButton });
+    void ensureSerrIssuesTab({ bindNotifTabButton });
     renderSerrNotifications();
     const serrTabActive = document.querySelector('#jfNotifModal .jf-notif-tab.active[data-tab="serr"]') != null;
     if (serrTabActive) markSerrNotificationsSeen();
@@ -1106,6 +1116,7 @@ function openModal() {
     });
   } else {
     stopSerrNotificationsPoll();
+    removeSerrIssuesTab();
   }
   void ensureCastTabPresence();
   if (liveConfig.enableRenderResume !== false) renderResume();

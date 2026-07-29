@@ -101,6 +101,16 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             public int? ProblemEpisode { get; set; }
         }
 
+        public sealed class SerrIssueCommentRequest
+        {
+            public string? Message { get; set; }
+        }
+
+        public sealed class SerrIssueStatusRequest
+        {
+            public string? Status { get; set; }
+        }
+
         [HttpGet("access")]
         public IActionResult GetAccess()
         {
@@ -352,16 +362,180 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             var guard = EnsureConfigured(cfg);
             if (guard is not null) return guard;
 
+            var isAdmin = IsAdminUser(userCheck.User);
             var response = await SendSerrAsync(cfg, HttpMethod.Get, "/issue?take=50&sort=added", null, cancellationToken);
             NoCache();
             if (!response.Ok)
             {
                 // An instance with issues disabled answers 404/403 here; the client hides the UI
                 // rather than surfacing an error the user cannot act on.
-                return Ok(new { ok = false, error = response.Error, issues = Array.Empty<object>() });
+                return Ok(new { ok = false, error = response.Error, issues = Array.Empty<object>(), isAdmin });
             }
 
-            return Ok(new { ok = true, issues = response.Payload });
+            // Jellyseerr's API key is an admin credential, so the raw list is every user's reports.
+            // Scoping has to happen here: doing it in the client would leave the unfiltered payload
+            // one devtools request away. The envelope is flattened to a bare array at the same time
+            // so callers stop having to handle both shapes.
+            var issues = ReadSerrIssueRecords(response.Payload)
+                .Where(issue => isAdmin || IsSerrIssueAuthor(issue, userCheck.UserId))
+                .ToList();
+
+            return Ok(new { ok = true, issues, isAdmin });
+        }
+
+        [HttpGet("issues/{id:int}")]
+        public async Task<IActionResult> GetIssue(int id, CancellationToken cancellationToken)
+        {
+            var userCheck = TryGetRequestUser();
+            if (userCheck.Result is not null)
+            {
+                return userCheck.Result;
+            }
+
+            if (id <= 0) return BadRequest(new { ok = false, error = "issue id is required." });
+
+            var cfg = GetConfig();
+            var guard = EnsureConfigured(cfg);
+            if (guard is not null) return guard;
+
+            var isAdmin = IsAdminUser(userCheck.User);
+            var response = await SendSerrAsync(cfg, HttpMethod.Get, "/issue/" + id.ToString(CultureInfo.InvariantCulture), null, cancellationToken);
+            NoCache();
+            if (!response.Ok)
+            {
+                return StatusCode(response.StatusCode > 0 ? response.StatusCode : 502, new { ok = false, error = response.Error });
+            }
+
+            if (!isAdmin && !IsSerrIssueAuthor(response.Payload, userCheck.UserId))
+            {
+                return StatusCode(403, new { ok = false, error = "This issue belongs to another user." });
+            }
+
+            return Ok(new { ok = true, issue = response.Payload, isAdmin });
+        }
+
+        [HttpPost("issues/{id:int}/comment")]
+        public async Task<IActionResult> CommentIssue(int id, [FromBody] SerrIssueCommentRequest? request, CancellationToken cancellationToken)
+        {
+            var userCheck = TryGetRequestUser();
+            if (userCheck.Result is not null)
+            {
+                return userCheck.Result;
+            }
+
+            // Commenting and closing are the admin half of the workflow. Regular users get the
+            // read-only view, and that boundary is enforced here rather than by hiding buttons.
+            if (!IsAdminUser(userCheck.User))
+            {
+                return StatusCode(403, new { ok = false, error = "Administrator permission is required." });
+            }
+
+            if (id <= 0) return BadRequest(new { ok = false, error = "issue id is required." });
+
+            var message = CleanText(request?.Message, 1000);
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return BadRequest(new { ok = false, error = "message is required." });
+            }
+
+            var cfg = GetConfig();
+            var guard = EnsureConfigured(cfg);
+            if (guard is not null) return guard;
+
+            var response = await SendSerrAsync(
+                cfg,
+                HttpMethod.Post,
+                "/issue/" + id.ToString(CultureInfo.InvariantCulture) + "/comment",
+                new Dictionary<string, object> { ["message"] = message },
+                cancellationToken);
+
+            NoCache();
+            if (!response.Ok)
+            {
+                return StatusCode(response.StatusCode > 0 ? response.StatusCode : 502, new { ok = false, error = response.Error });
+            }
+
+            return Ok(new { ok = true, issue = response.Payload });
+        }
+
+        [HttpPost("issues/{id:int}/status")]
+        public async Task<IActionResult> SetIssueStatus(int id, [FromBody] SerrIssueStatusRequest? request, CancellationToken cancellationToken)
+        {
+            var userCheck = TryGetRequestUser();
+            if (userCheck.Result is not null)
+            {
+                return userCheck.Result;
+            }
+
+            if (!IsAdminUser(userCheck.User))
+            {
+                return StatusCode(403, new { ok = false, error = "Administrator permission is required." });
+            }
+
+            if (id <= 0) return BadRequest(new { ok = false, error = "issue id is required." });
+
+            var status = (request?.Status ?? string.Empty).Trim().ToLowerInvariant();
+            if (status != "open" && status != "resolved")
+            {
+                return BadRequest(new { ok = false, error = "status must be 'open' or 'resolved'." });
+            }
+
+            var cfg = GetConfig();
+            var guard = EnsureConfigured(cfg);
+            if (guard is not null) return guard;
+
+            var response = await SendSerrAsync(
+                cfg,
+                HttpMethod.Post,
+                "/issue/" + id.ToString(CultureInfo.InvariantCulture) + "/" + status,
+                null,
+                cancellationToken);
+
+            NoCache();
+            if (!response.Ok)
+            {
+                return StatusCode(response.StatusCode > 0 ? response.StatusCode : 502, new { ok = false, error = response.Error });
+            }
+
+            return Ok(new { ok = true, issue = response.Payload });
+        }
+
+        /// <summary>
+        /// Jellyseerr answers /issue with a paginated { results: [] } envelope and /issue/{id} with a
+        /// bare object; older builds have handed back a plain array. All three are accepted so a
+        /// version bump on the Jellyseerr side cannot silently empty the panel.
+        /// </summary>
+        private static List<JsonElement> ReadSerrIssueRecords(JsonElement payload)
+        {
+            var list = new List<JsonElement>();
+            if (payload.ValueKind == JsonValueKind.Array)
+            {
+                list.AddRange(payload.EnumerateArray());
+                return list;
+            }
+
+            if (payload.ValueKind == JsonValueKind.Object
+                && payload.TryGetProperty("results", out var results)
+                && results.ValueKind == JsonValueKind.Array)
+            {
+                list.AddRange(results.EnumerateArray());
+            }
+
+            return list;
+        }
+
+        /// <summary>
+        /// Jellyseerr stores the Jellyfin user id as a GUID whose formatting varies by version and
+        /// link path ("N" vs "D"), so both are folded to the same shape before comparing — a plain
+        /// string compare would silently match nobody and hide every user's own reports.
+        /// </summary>
+        private static bool IsSerrIssueAuthor(JsonElement issue, Guid userId)
+        {
+            if (issue.ValueKind != JsonValueKind.Object || userId == Guid.Empty) return false;
+            if (!TryReadObject(issue, "createdBy", out var createdBy)) return false;
+
+            var raw = ReadStringAny(createdBy, "jellyfinUserId", "jellyfinUserID", "jellyfinId", "jellyfin_id");
+            return Guid.TryParse(raw, out var authorId) && authorId == userId;
         }
 
         [HttpGet("metadata/collection/search")]

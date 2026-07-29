@@ -348,7 +348,13 @@ async function startResolvedVideoPlayback({ itemId, item, requesterUserId, persi
       stage: "success",
       itemId,
       requesterUserId,
-      method: "local-direct"
+      // "local-direct" only says the local player took it, and the branches inside
+      // tryLocalPlaybackStart do not all carry the caller's stream indices. Recording which one
+      // actually started playback is the difference between a diagnosable track-selection report
+      // and one that says nothing at all.
+      method: "local-direct",
+      trackSelection: trackSelection || null,
+      localAttempts: Array.isArray(localKick?.attempts) ? localKick.attempts.slice(0, 8) : []
     });
     showPlayNowSuccessNotification();
     return true;

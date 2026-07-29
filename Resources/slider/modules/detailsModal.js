@@ -61,10 +61,6 @@ function pickPreferredAudioStream(streams = []) {
   return streams.find((stream) => stream?.IsDefault) || streams[0] || null;
 }
 
-// Mirrors OPEN_HOVER_DELAY_MS in hoverTrailerModal.js. Duplicated rather than imported so this
-// module never forces that 120 KB bundle to load when hover trailers are switched off.
-const EPISODE_HOVER_DELAY_MS = 500;
-
 const config = getConfig();
 const labels =
   (typeof getLanguageLabels === "function" ? getLanguageLabels() : null) ||
@@ -308,41 +304,6 @@ function softStopHeroMedia(root) {
     if (f) {
       try { f.__ytPlayer?.mute?.(); } catch {}
       try { f.__ytPlayer?.pauseVideo?.(); } catch {}
-    }
-  } catch {}
-}
-
-// Hovering an episode opens a preview with its own audio, so the hero trailer has to get out of
-// the way. Distinct from softStopHeroMedia above, which also zeroes volume: that is right for
-// teardown but would hand the hero back silent. Here the pre-hover state is stashed on the element
-// and only restored if it was actually playing.
-function pauseHeroMediaForPreview(root) {
-  try {
-    const v = root?.querySelector?.(".jmsdm-hero video[data-jms-hero-preview='1']");
-    if (v) {
-      v.__jmsResumeAfterPreview = !v.paused;
-      try { v.pause(); } catch {}
-    }
-    const f = root?.querySelector?.(".jmsdm-hero iframe[data-jms-hero-preview='1']");
-    if (f?.__ytPlayer) {
-      // 1 === YT.PlayerState.PLAYING, read numerically so this never depends on the YT API object.
-      try { f.__jmsResumeAfterPreview = f.__ytPlayer.getPlayerState?.() === 1; } catch { f.__jmsResumeAfterPreview = false; }
-      try { f.__ytPlayer.pauseVideo?.(); } catch {}
-    }
-  } catch {}
-}
-
-function resumeHeroMediaAfterPreview(root) {
-  try {
-    const v = root?.querySelector?.(".jmsdm-hero video[data-jms-hero-preview='1']");
-    if (v?.__jmsResumeAfterPreview) {
-      v.__jmsResumeAfterPreview = false;
-      try { v.play()?.catch?.(() => {}); } catch {}
-    }
-    const f = root?.querySelector?.(".jmsdm-hero iframe[data-jms-hero-preview='1']");
-    if (f?.__jmsResumeAfterPreview) {
-      f.__jmsResumeAfterPreview = false;
-      try { f.__ytPlayer?.playVideo?.(); } catch {}
     }
   } catch {}
 }
@@ -4177,151 +4138,17 @@ wireMiniCardDelegation();
       }
       try {
         const started = await playNow(epId, await resolveEpisodeTrackSelection(epId));
-        // The hover preview paused the hero on the way in. Playback taking over makes that moot,
-        // but if it never started the modal stays open and the hero has to come back.
-        if (!started) { resumeHeroMediaAfterPreview(root); return; }
+        if (!started) return;
         await closeDetailsModal();
         notifyDetailsModalPlay(epId);
       } catch (err) {
         console.error("Episode play error:", err);
-        resumeHeroMediaAfterPreview(root);
         window.showMessage?.(config.languageLabels.episodePlayFailed || "Bölüm oynatılamadı", "error");
       }
     });
   }
 
   wireEpisodeClicks();
-
-  // Hovering an episode plays a preview, the same way rows on the home screen do. The open path is
-  // the global bridge hoverTrailerModal installs, so nothing about the preview itself is
-  // reimplemented here — only the intent timing and the delegation. Deliberately not imported:
-  // when hover trailers are disabled the module never loads, and the fallbacks below no-op.
-  function wireEpisodeHoverPreview() {
-    if (root.__episodeHoverDelegated) return;
-    root.__episodeHoverDelegated = true;
-
-    let hoverTimer = null;
-    let hoveredEl = null;
-    let openSeq = 0;
-    let resumeTimer = null;
-
-    const clearHoverTimer = () => {
-      if (hoverTimer) {
-        clearTimeout(hoverTimer);
-        hoverTimer = null;
-      }
-    };
-
-    // Moving from one episode card to the next fires pointerout on the first before pointerover on
-    // the second, so resuming the hero immediately would restart it for the length of the open
-    // delay on every card the pointer crosses. Deferring by that same delay means a move within the
-    // list cancels the resume before it ever fires; only leaving the list altogether resumes.
-    const cancelPendingResume = () => {
-      if (resumeTimer) {
-        clearTimeout(resumeTimer);
-        resumeTimer = null;
-      }
-    };
-
-    const scheduleHeroResume = () => {
-      cancelPendingResume();
-      resumeTimer = setTimeout(() => {
-        resumeTimer = null;
-        resumeHeroMediaAfterPreview(root);
-      }, EPISODE_HOVER_DELAY_MS);
-    };
-
-    // forceVideo: an episode has no trailer of its own, so the preview would otherwise resolve the
-    // series' YouTube trailer and play that for every episode in the list.
-    // ignoreGlobalMode: this list is not card hover, so it opens the preview even when the global
-    // hover type is StudioHubs Mini.
-    const PREVIEW_OPTS = { bypass: true, forceVideo: true, ignoreGlobalMode: true };
-
-    const openHoverPreview = (itemId, anchorEl) => {
-      if (typeof window.tryOpenHoverModal === "function") {
-        try { window.tryOpenHoverModal(itemId, anchorEl, { ...PREVIEW_OPTS }); return; } catch {}
-      }
-      if (window.__hoverTrailer && typeof window.__hoverTrailer.open === "function") {
-        try { window.__hoverTrailer.open({ itemId, anchor: anchorEl, ...PREVIEW_OPTS }); return; } catch {}
-      }
-      try {
-        window.dispatchEvent(new CustomEvent("jms:hoverTrailer:open", {
-          detail: { itemId, anchor: anchorEl, ...PREVIEW_OPTS }
-        }));
-      } catch {}
-    };
-
-    const closeHoverPreview = () => {
-      if (typeof window.closeHoverPreview === "function") {
-        try { window.closeHoverPreview(); return; } catch {}
-      }
-      if (window.__hoverTrailer && typeof window.__hoverTrailer.close === "function") {
-        try { window.__hoverTrailer.close(); return; } catch {}
-      }
-      try { window.dispatchEvent(new CustomEvent("jms:hoverTrailer:close")); } catch {}
-    };
-
-    const resolveHoverTarget = (event) => {
-      const el = event?.target?.closest?.(".jmsdm-ep");
-      if (!el || !root.contains(el)) return null;
-      // Synthetic Seerr placeholders have no playable media behind them.
-      if (el.getAttribute("data-monwui-serr-missing-preview") === "1") return null;
-      const epId = el.getAttribute("data-epid");
-      return epId ? { el, epId } : null;
-    };
-
-    addEventListener(root, "pointerover", (e) => {
-      if (e?.pointerType === "touch") return;
-      const target = resolveHoverTarget(e);
-      if (!target) return;
-      if (target.el === hoveredEl) return;
-
-      hoveredEl = target.el;
-      clearHoverTimer();
-      cancelPendingResume();
-
-      const seq = ++openSeq;
-      hoverTimer = setTimeout(() => {
-        if (seq !== openSeq) return;
-        if (!hoveredEl?.isConnected || !hoveredEl.matches(":hover")) return;
-        root.__episodeHoverOpen = true;
-        pauseHeroMediaForPreview(root);
-        openHoverPreview(target.epId, hoveredEl);
-      }, EPISODE_HOVER_DELAY_MS);
-    }, { passive: true });
-
-    addEventListener(root, "pointerout", (e) => {
-      if (e?.pointerType === "touch") return;
-      const el = e?.target?.closest?.(".jmsdm-ep");
-      if (!el || el !== hoveredEl) return;
-      // pointerout also fires moving between children of the same card.
-      if (el.contains(e?.relatedTarget)) return;
-
-      openSeq++;
-      hoveredEl = null;
-      clearHoverTimer();
-      if (root.__episodeHoverOpen) {
-        root.__episodeHoverOpen = false;
-        closeHoverPreview();
-        scheduleHeroResume();
-      }
-    }, { passive: true });
-
-    // Clicking through to playback must not leave an orphaned preview behind. No hero resume here:
-    // this fires on the way to playNow(), and the modal is about to be torn down.
-    addEventListener(root, "click", () => {
-      openSeq++;
-      hoveredEl = null;
-      clearHoverTimer();
-      cancelPendingResume();
-      if (root.__episodeHoverOpen) {
-        root.__episodeHoverOpen = false;
-        closeHoverPreview();
-      }
-    }, true);
-  }
-
-  wireEpisodeHoverPreview();
 
   // The report button only appears once Jellyseerr confirms it knows this title: without an
   // internal media id there is nothing to file an issue against, and a button that always fails
