@@ -42,6 +42,7 @@ let refreshPromise = null;
 let openIssueId = 0;
 let openIssue = null;
 let detailBusy = false;
+let detailSeq = 0;
 const metadataCache = new Map();
 const metadataPromises = new Map();
 
@@ -437,18 +438,25 @@ async function openDetail(id) {
   const host = panelHost();
   if (!host) return;
 
+  // Going back, or opening another issue, while this fetch is in flight must not have the stale
+  // response paint itself over whatever the user is looking at now.
+  const seq = ++detailSeq;
   openIssueId = id;
   openIssue = null;
   host.innerHTML = `<div class="monwui-issue-empty">${escapeHtml(L("loadingText", "Cargando..."))}</div>`;
 
   try {
     const data = await getSerrIssue(id);
-    openIssue = data?.issue || null;
-    if (data?.isAdmin === true || data?.isAdmin === false) cachedIsAdmin = data.isAdmin === true;
-    if (!openIssue) throw new Error(L("issuesLoadFailed", "No se pudo cargar el problema."));
-    await resolveMediaMeta(openIssue).catch(() => null);
+    if (seq !== detailSeq) return;
+    const issue = data?.issue || null;
+    if (typeof data?.isAdmin === "boolean") cachedIsAdmin = data.isAdmin;
+    if (!issue) throw new Error(L("issuesLoadFailed", "No se pudo cargar el problema."));
+    await resolveMediaMeta(issue).catch(() => null);
+    if (seq !== detailSeq) return;
+    openIssue = issue;
     renderDetail();
   } catch (error) {
+    if (seq !== detailSeq) return;
     openIssueId = 0;
     openIssue = null;
     notify(error?.message || L("issuesLoadFailed", "No se pudo cargar el problema."), "error");
@@ -457,6 +465,7 @@ async function openDetail(id) {
 }
 
 function backToList() {
+  detailSeq++;
   openIssueId = 0;
   openIssue = null;
   renderList();
@@ -635,8 +644,4 @@ export async function ensureSerrIssuesTab({ bindNotifTabButton } = {}) {
 
 export function refreshSerrIssues(options = {}) {
   return refresh(options);
-}
-
-export function getCachedSerrIssueCount() {
-  return moduleEnabled() && shouldShowTab() ? openIssueCount() : 0;
 }
