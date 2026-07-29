@@ -348,8 +348,18 @@ async function startResolvedVideoPlayback({ itemId, item, requesterUserId, persi
       stage: "success",
       itemId,
       requesterUserId,
-      method: "local-direct"
+      // "local-direct" only says the local player took it, and the branches inside
+      // tryLocalPlaybackStart do not all carry the caller's stream indices. Recording which one
+      // actually started playback is the difference between a diagnosable track-selection report
+      // and one that says nothing at all.
+      method: "local-direct",
+      trackSelection: trackSelection || null,
+      localAttempts: Array.isArray(localKick?.attempts) ? localKick.attempts.slice(0, 8) : []
     });
+    // Deliberately not awaited: reapplying the tracks can take a stream change to complete, and the
+    // caller uses this return value to close the details modal. Its own record lands in
+    // localStorage under jms:lastTrackEnforce.
+    void enforceTrackSelectionAfterStart(trackSelection);
     showPlayNowSuccessNotification();
     return true;
   }
@@ -2366,6 +2376,131 @@ function hasTrackSelection(trackSelection) {
   return !!trackSelection && Object.keys(trackSelection).length > 0;
 }
 
+function findWebpackPlaybackManager(req = getWebpackRequireForPlayNow()) {
+  if (!req) return null;
+
+  try {
+    const direct = req(39738);
+    if (direct?.f?.play) return direct.f;
+  } catch {}
+
+  if (req.c) {
+    for (const mod of Object.values(req.c)) {
+      const candidate = mod?.exports?.f;
+      if (candidate?.play && candidate?.canPlay && candidate?.getCurrentPlayer) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+const TRACK_ENFORCE_TIMEOUT_MS = 8000;
+const TRACK_ENFORCE_POLL_MS = 120;
+
+// Null means "the player has no selection", which is not the same as index 0 — and Number(null)
+// is 0, so the empty cases have to be rejected before the cast.
+function readPlaybackIndex(read) {
+  try {
+    const raw = read();
+    if (raw === null || raw === undefined || raw === "") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistTrackEnforceDebug(payload) {
+  try { window.__jmsLastTrackEnforceDebug = payload; } catch {}
+  try { localStorage.setItem("jms:lastTrackEnforce", JSON.stringify(payload)); } catch {}
+}
+
+/**
+ * jellyfin-web accepts audioStreamIndex/subtitleStreamIndex in play() options and then throws them
+ * away: playInternal runs its "AutoSet" pass over the media source and, whenever the user profile
+ * has RememberAudioSelections / RememberSubtitleSelections on (the default), unconditionally
+ * overwrites both with the source's own DefaultAudio/SubtitleStreamIndex before building the
+ * PlaybackInfo request. onPlaybackStarted then reseeds the player state from those same defaults.
+ * The upshot is that a title whose default track is English plays English no matter what the
+ * caller asked for, which is what the details modal's picker looked like it was doing nothing.
+ *
+ * So the selection is reapplied once playback is actually running and the state has settled. Only
+ * indices that differ from what the player ended up on are touched: switching audio on a
+ * direct-played source forces a stream change, and doing that when the track is already right
+ * would restart playback for no reason.
+ */
+async function enforceTrackSelectionAfterStart(trackSelection) {
+  if (!hasTrackSelection(trackSelection)) return null;
+
+  const manager =
+    findWebpackPlaybackManager() ||
+    collectPlaybackManagersForPlayNow().find((candidate) => typeof candidate?.getAudioStreamIndex === "function") ||
+    null;
+
+  if (!manager || typeof manager.getAudioStreamIndex !== "function") {
+    const miss = { at: Date.now(), applied: false, reason: "no-playback-manager", trackSelection };
+    persistTrackEnforceDebug(miss);
+    return miss;
+  }
+
+  const currentPlayer = () => {
+    try { return manager.getCurrentPlayer?.() || manager._currentPlayer || null; } catch { return null; }
+  };
+  const readAudio = (player) => readPlaybackIndex(() => manager.getAudioStreamIndex(player));
+  const readSubtitle = (player) => readPlaybackIndex(() => manager.getSubtitleStreamIndex?.(player));
+  const settle = async (predicate) => {
+    const deadline = Date.now() + TRACK_ENFORCE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const player = currentPlayer();
+      if (player && predicate(player)) return player;
+      await new Promise((resolve) => setTimeout(resolve, TRACK_ENFORCE_POLL_MS));
+    }
+    return currentPlayer();
+  };
+
+  const outcome = { at: Date.now(), applied: false, trackSelection, audio: null, subtitle: null };
+
+  try {
+    // Anything applied before onPlaybackStarted seeds the state is overwritten by it.
+    let player = await settle((p) => readAudio(p) !== null || readSubtitle(p) !== null);
+    if (!player) {
+      outcome.reason = "no-player";
+      persistTrackEnforceDebug(outcome);
+      return outcome;
+    }
+
+    const wantAudio = Number(trackSelection.audioStreamIndex);
+    if (Number.isFinite(wantAudio)) {
+      const from = readAudio(player);
+      if (from !== null && from !== wantAudio) {
+        manager.setAudioStreamIndex(wantAudio, player);
+        outcome.audio = { from, to: wantAudio };
+        outcome.applied = true;
+        // An audio switch that cannot be done in place restarts the stream, which runs AutoSet
+        // again — so the subtitle has to wait for that to land or it gets reset right after.
+        player = await settle((p) => readAudio(p) === wantAudio) || player;
+      }
+    }
+
+    const wantSubtitle = Number(trackSelection.subtitleStreamIndex);
+    if (Number.isFinite(wantSubtitle)) {
+      const from = readSubtitle(player);
+      if (from !== null && from !== wantSubtitle && typeof manager.setSubtitleStreamIndex === "function") {
+        manager.setSubtitleStreamIndex(wantSubtitle, player);
+        outcome.subtitle = { from, to: wantSubtitle };
+        outcome.applied = true;
+      }
+    }
+  } catch (error) {
+    outcome.error = String(error?.message || error || "");
+  }
+
+  persistTrackEnforceDebug(outcome);
+  return outcome;
+}
+
 async function tryWebpackShortcutPlaybackStart(itemId, { startPositionTicks = 0, item = null } = {}) {
   const attempts = [];
   const req = getWebpackRequireForPlayNow();
@@ -2450,22 +2585,7 @@ async function tryWebpackPlaybackManagerStart(itemId, { startPositionTicks = 0, 
   }
 
   try {
-    let playbackManager = null;
-
-    try {
-      const direct = req(39738);
-      if (direct?.f?.play) playbackManager = direct.f;
-    } catch {}
-
-    if (!playbackManager && req.c) {
-      for (const mod of Object.values(req.c)) {
-        const candidate = mod?.exports?.f;
-        if (candidate?.play && candidate?.canPlay && candidate?.getCurrentPlayer) {
-          playbackManager = candidate;
-          break;
-        }
-      }
-    }
+    const playbackManager = findWebpackPlaybackManager(req);
 
     if (!playbackManager?.play) {
       attempts.push({ target: "webpack", method: "playbackManager", ok: false, err: "playback manager yok" });

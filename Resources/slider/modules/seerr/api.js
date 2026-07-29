@@ -192,12 +192,33 @@ export async function createSerrIssue({ issueType, mediaId, message = "", proble
 
 // Resolves to { ok:false, issues:[] } when the instance has issues turned off, so callers can
 // hide the entry point instead of showing an error the user cannot act on.
+// The controller scopes the list to the caller (admins see everything) and flattens Jellyseerr's
+// paginated envelope, so `issues` is always a plain array.
 export async function listSerrIssues() {
   try {
     return await request("/issues");
   } catch (error) {
-    return { ok: false, error: String(error?.message || error || ""), issues: [] };
+    return { ok: false, error: String(error?.message || error || ""), issues: [], isAdmin: false };
   }
+}
+
+export async function getSerrIssue(id) {
+  return request(`/issues/${encodeURIComponent(String(id || ""))}`);
+}
+
+export async function commentSerrIssue(id, message) {
+  return request(`/issues/${encodeURIComponent(String(id || ""))}/comment`, {
+    method: "POST",
+    body: JSON.stringify({ message: String(message || "") })
+  });
+}
+
+// status is "open" or "resolved"; anything else is rejected by the controller.
+export async function setSerrIssueStatus(id, status) {
+  return request(`/issues/${encodeURIComponent(String(id || ""))}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status: String(status || "") })
+  });
 }
 
 export async function withdrawSerrRequest(id) {

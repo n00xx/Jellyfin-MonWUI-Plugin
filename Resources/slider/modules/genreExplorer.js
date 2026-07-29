@@ -108,6 +108,11 @@ function closeActiveExplorers() {
   if (__p_overlay) {
     try { closePersonalExplorer(true); } catch {}
   }
+  // The studio explorer lives in this same module but was missing here, so picking a title out of
+  // a studio hub and pressing play left the grid sitting on top of the player.
+  if (__s_overlay) {
+    try { closeStudioExplorer(true); } catch {}
+  }
 }
 
 (function bindDetailsModalPlayCloser() {
