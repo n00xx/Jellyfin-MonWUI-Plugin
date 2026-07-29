@@ -77,7 +77,7 @@ async function openExplorerCardDetails(cardEl) {
   }
 }
 
-function bindExplorerGridDetails(grid) {
+export function bindExplorerGridDetails(grid) {
   if (!grid) return;
 
   grid.addEventListener('click', async (e) => {
@@ -98,7 +98,23 @@ function bindExplorerGridDetails(grid) {
   }, { passive: false });
 }
 
+/**
+ * Closers for explorers that live in other modules. They register here instead of being
+ * imported, so the dependency stays one-directional (they import this module, not the
+ * reverse) and `closeActiveExplorers` keeps closing every overlay that can cover the player.
+ */
+const __externalExplorerClosers = new Set();
+
+export function registerExplorerCloser(close) {
+  if (typeof close !== "function") return () => {};
+  __externalExplorerClosers.add(close);
+  return () => { __externalExplorerClosers.delete(close); };
+}
+
 function closeActiveExplorers() {
+  for (const close of __externalExplorerClosers) {
+    try { close(); } catch {}
+  }
   if (__overlay) {
     try { closeGenreExplorer(true); } catch {}
   }
@@ -281,7 +297,7 @@ function unobserveImage(img) {
   if (img) { img.removeAttribute('srcset'); }
 }
 
-function injectGEPerfStyles() {
+export function injectGEPerfStyles() {
   if (document.getElementById('ge-perf-css')) return;
   const st = document.createElement('style');
   st.id = 'ge-perf-css';
@@ -336,6 +352,11 @@ function pruneGridIfNeeded() {
     try { __originPoint = { x: e.clientX, y: e.clientY }; } catch {}
   }, { capture: true, passive: true });
 })();
+
+/** Last pointerdown position, so explorers in other modules can grow from the click too. */
+export function getExplorerPointerOrigin() {
+  return __originPoint;
+}
 
 
 export function openGenreExplorer(genre) {
@@ -715,17 +736,42 @@ function renderIntoGrid(items){
   pruneGridIfNeeded();
 }
 
-function createCardFor(item) {
-  const serverId = __serverId || __p_serverId || "";
+/**
+ * Type chip for a grid card. Genre/director/personal/studio explorers only ever query
+ * Movie and Series; the section explorer also lists Episode, Audio and MusicAlbum, which
+ * would otherwise all render as "Movie".
+ */
+function describeCardType(item, cfg) {
+  const labels = cfg?.languageLabels || {};
+  switch (String(item?.Type || "")) {
+    case "Series":
+      return { label: labels.dizi || "Dizi", icon: "tv" };
+    case "Episode":
+      return { label: labels.badgeEpisode || labels.episode || "Bölüm", icon: "tv" };
+    case "Audio":
+      return { label: labels.cardTypeTrack || "Parça", icon: "music" };
+    case "MusicAlbum":
+      return { label: labels.cardTypeAlbum || labels.watchlistPreviewAlbum || "Albüm", icon: "music" };
+    default:
+      return { label: labels.film || "Film", icon: "film" };
+  }
+}
+
+/**
+ * Builds an explorer grid card.
+ *
+ * `serverIdOverride` exists for callers outside this module: the serverId is read from
+ * whichever explorer is open, and those are file-scoped here. Without it an imported
+ * caller silently gets `""`, which produces a card that looks right and links wrong.
+ */
+export function createCardFor(item, serverIdOverride = "") {
+  const serverId = serverIdOverride || __serverId || __p_serverId || "";
   const posterUrlHQ = buildPosterUrlHQ(item);
   const posterSetHQ = posterUrlHQ ? buildPosterSrcSet(item) : "";
   const posterUrlLQ = buildPosterUrlLQ(item);
   const isSeries = item.Type === "Series";
   const cfg = getConfig() || {};
-  const typeLabel = isSeries
-    ? ((cfg.languageLabels && cfg.languageLabels.dizi) || "Dizi")
-    : ((cfg.languageLabels && cfg.languageLabels.film) || "Film");
-  const typeIcon = isSeries ? 'tv' : 'film';
+  const { label: typeLabel, icon: typeIcon } = describeCardType(item, cfg);
 
   const ageChip = formatOfficialRatingLabel(item.OfficialRating || "");
   const year = item.ProductionYear || "";

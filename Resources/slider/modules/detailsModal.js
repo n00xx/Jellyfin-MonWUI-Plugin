@@ -3732,9 +3732,6 @@ wireMiniCardDelegation();
       <button type="button" class="jmsdm-btn jmsdm-report" hidden>
         ${icon("M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z")} ${label("issueReportAction", "Reportar problema")}
       </button>
-      <button type="button" class="jmsdm-btn jmsdm-openpage">
-        ${icon("M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3z")} ${config.languageLabels.goToPageLabel || "Sayfaya Git"}
-      </button>
       <button class="jmsdm-btn jmsdm-fav" aria-pressed="${isFavorite ? "true" : "false"}">
         ${icon(isFavorite ? "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" : "M12.1 18.55l-.1.1-.11-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z")}
         ${getFavoriteButtonText(isFavorite)}
@@ -3898,21 +3895,16 @@ wireMiniCardDelegation();
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation?.();
-    if (isTrailerItem) {
-      const url = String(detailsHrefResolved || "").trim();
-      if (!url) return;
 
-      try {
-        window.open(url, "_blank", "noopener,noreferrer");
-      } catch {}
-      return;
-    }
+    // Only trailer items still carry this button, and for them it opens the TMDb page.
+    // Library items used to get a "Go to Page" button here that jumped to Jellyfin's native
+    // detail page; that was removed now that the modal shows everything it did.
+    const url = String(detailsHrefResolved || "").trim();
+    if (!url) return;
+
     try {
-      window.location.hash = String(detailsHrefResolved || "").replace(/^#/, "");
-      closeDetailsModal();
-    } catch {
-      window.location.href = detailsHrefResolved;
-    }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {}
   };
 
   addEventListener(playBtn, "click", playHandler);

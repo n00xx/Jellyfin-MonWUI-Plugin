@@ -12,6 +12,7 @@ const FA_ICONS = Object.freeze({
   moon: "fa-solid fa-moon",
   music: "fa-solid fa-music",
   play: "fa-solid fa-play",
+  search: "fa-solid fa-magnifying-glass",
   sliders: "fa-solid fa-sliders",
   sun: "fa-solid fa-sun",
   tv: "fa-solid fa-tv",
