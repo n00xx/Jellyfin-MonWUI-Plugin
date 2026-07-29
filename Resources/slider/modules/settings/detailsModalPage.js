@@ -18,12 +18,6 @@ export function createDetailsModalPanel(config, labels) {
   fieldsWrap.className = "sub-options details-modal-sub-options";
 
   fieldsWrap.appendChild(createCheckbox(
-    "detailsModalTmdbReviewsEnabled",
-    labels.detailsModalTmdbReviewsEnabled || "TMDb yorum alanını göster",
-    config.detailsModalTmdbReviewsEnabled !== false
-  ));
-
-  fieldsWrap.appendChild(createCheckbox(
     "detailsModalLocalCommentsEnabled",
     labels.detailsModalLocalCommentsEnabled || "Topluluk Yorumları alanını göster",
     config.detailsModalLocalCommentsEnabled === true

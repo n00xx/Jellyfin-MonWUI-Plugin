@@ -440,10 +440,19 @@ const USER_ONLY_KEYS = [
             previewTrailerVolumeLimit: formData.get('previewTrailerVolumeLimit') === 'on',
             previewTrailerVolumePercent: Math.max(
               0,
-              Math.min(100, _floatOr(formData.get('previewTrailerVolumePercent'), 50))
+              Math.min(100, _floatOr(formData.get('previewTrailerVolumePercent'), config.previewTrailerVolumePercent ?? 40))
             ),
-            preferTrailersInPreviewModal: formData.get('preferTrailersInPreviewModal') === 'on',
-            onlyTrailerInPreviewModal: formData.get('onlyTrailerInPreviewModal') === 'on',
+            // Read from the DOM, not FormData: hoverTrailerPage disables both of these whenever the
+            // global hover type is StudioHubs Mini, and FormData omits disabled controls. Going
+            // through formData.get() would therefore write false on every save made in that mode.
+            preferTrailersInPreviewModal: boolFromFd(
+              'preferTrailersInPreviewModal',
+              config.preferTrailersInPreviewModal !== false
+            ),
+            onlyTrailerInPreviewModal: boolFromFd(
+              'onlyTrailerInPreviewModal',
+              config.onlyTrailerInPreviewModal === true
+            ),
             dotPreviewPlaybackMode: (() => {
               const v = formData.get('dotPreviewPlaybackMode');
               if (v === 'trailer' || v === 'video' || v === 'onlyTrailer') return v;
@@ -476,9 +485,11 @@ const USER_ONLY_KEYS = [
               if (formData.get('enableTrailerThenVideo') === 'on') return 'trailerThenVideo';
               if (formData.get('enableTrailerPlayback') === 'on') return 'trailer';
               if (formData.get('enableVideoPlayback') === 'on') return 'video';
-              return 'video';
+              // None of the four present means the slider panel was never rendered into the form,
+              // not that the user picked nothing — keep what they already had.
+              return config.previewPlaybackMode || 'trailerThenVideo';
             })(),
-            globalPreviewMode: formData.get('globalPreviewMode') || 'modal',
+            globalPreviewMode: formData.get('globalPreviewMode') || config.globalPreviewMode || 'studioMini',
             enabledGmmp: formData.get('enabledGmmp') === 'on',
             enableQualityBadges: formData.get('enableQualityBadges') === 'on',
             enableTrailerThenVideo: formData.get('enableTrailerThenVideo') === 'on',
@@ -502,7 +513,6 @@ const USER_ONLY_KEYS = [
             enableSerrArrIntegrationModule: formData.get('enableSerrArrIntegrationModule') === 'on',
             enableCastModule,
             allowSharedCastViewerForUsers,
-            detailsModalTmdbReviewsEnabled: formData.get('detailsModalTmdbReviewsEnabled') === 'on',
             detailsModalLocalCommentsEnabled: formData.get('detailsModalLocalCommentsEnabled') === 'on',
             enableCustomSplashScreen: formData.get('enableCustomSplashScreen') === 'on',
             customSplashTitle: String(formData.get('customSplashTitle') || '').trim(),

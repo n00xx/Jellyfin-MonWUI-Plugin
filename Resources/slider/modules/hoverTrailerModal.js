@@ -340,7 +340,7 @@ function hardWipeModalDom(modal = modalState.videoModal) {
   try { cleanupImageResourceRefs(modal, { revokeDetachedBlobs: true }); } catch {}
 }
 
-export async function updateModalContent(item, videoUrl) {
+export async function updateModalContent(item, videoUrl, opts = {}) {
   // Loaded on demand rather than statically: this runs when a hover preview opens, not during
   // startup, so the full watchlist module does not need to be on the first-load path.
   await import("./watchlist.js")
@@ -359,7 +359,13 @@ export async function updateModalContent(item, videoUrl) {
   const preferTrailerGlobal = !!cfg.preferTrailersInPreviewModal;
   let onlyTrailer = false, preferTrailer = false;
 
-  if (contextIsDot) {
+  // forceVideo callers want the item itself, not a trailer for it. An episode resolves no trailer
+  // of its own, so resolveTrailerUrlFor() falls back to the series' YouTube trailer and the
+  // preferTrailer branch below would play that instead of the episode.
+  if (opts?.forceVideo) {
+    onlyTrailer = false;
+    preferTrailer = false;
+  } else if (contextIsDot) {
     if (dotMode === 'onlyTrailer')      { onlyTrailer = true;  preferTrailer = false; }
     else if (dotMode === 'trailer')     { onlyTrailer = false; preferTrailer = true;  }
     else if (dotMode === 'video')       { onlyTrailer = false; preferTrailer = false; }
@@ -369,7 +375,9 @@ export async function updateModalContent(item, videoUrl) {
     preferTrailer = preferTrailerGlobal;
   }
 
-  const trailerInfo = await resolveTrailerUrlFor(item);
+  // Skipped entirely under forceVideo: nothing below can use the result, and resolving it costs a
+  // TMDb lookup per hover.
+  const trailerInfo = opts?.forceVideo ? { url: null, level: null } : await resolveTrailerUrlFor(item);
   const trailerUrl = trailerInfo.url;
   const isLocal = trailerInfo.level === 'local';
   const isYTValid = !!trailerUrl && (trailerInfo.level === 'item' || trailerInfo.level === 'series');
@@ -3445,7 +3453,11 @@ export async function openPreviewModalForItem(itemId, anchorEl, opts = {}) {
   try {
     const cfg = getConfig();
     const mode = (cfg?.globalPreviewMode || 'modal');
-    if (mode !== 'modal' || cfg?.allPreviewModal === false || !itemId) return false;
+    // ignoreGlobalMode is for callers that open this modal directly rather than through card hover
+    // (the details modal's episode list). Without it, selecting StudioHubs Mini as the global hover
+    // type would leave those callers with no preview at all.
+    if (!opts.ignoreGlobalMode && mode !== 'modal') return false;
+    if (cfg?.allPreviewModal === false || !itemId) return false;
     if (isLiveTvRouteActive() || isLiveTvCardElement(anchorEl)) return false;
     if (!canOpenItem(itemId)) return false;
     if (modalIsVisible() && modalState.videoModal?.dataset?.itemId === String(itemId)) {
@@ -3508,7 +3520,7 @@ export async function openPreviewModalForItem(itemId, anchorEl, opts = {}) {
     let videoUrl = null;
     try { videoUrl = await preloadVideoPreview(itemId); } catch {}
     if (!isTokenAlive(myToken) || modal.dataset.itemId !== String(itemId)) return false;
-    await updateModalContent(item, videoUrl);
+    await updateModalContent(item, videoUrl, { forceVideo: !!opts.forceVideo });
 
     const iframe = modal.querySelector('.preview-trailer-iframe');
     const hasIframe = !!(iframe && iframe.style.display !== 'none' && iframe.src);
@@ -3667,9 +3679,13 @@ function nextFrame(cb) {
 
 window.addEventListener('jms:hoverTrailer:open', (ev) => {
   try {
-    const { itemId, anchor, bypass } = ev?.detail || {};
+    const { itemId, anchor, bypass, forceVideo, ignoreGlobalMode } = ev?.detail || {};
     if (!itemId) return;
-    openPreviewModalForItem(itemId, anchor || null, { bypass: bypass !== false });
+    openPreviewModalForItem(itemId, anchor || null, {
+      bypass: bypass !== false,
+      forceVideo: !!forceVideo,
+      ignoreGlobalMode: !!ignoreGlobalMode
+    });
   } catch {}
 }, { passive: true });
 
