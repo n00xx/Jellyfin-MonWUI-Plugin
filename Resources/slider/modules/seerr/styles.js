@@ -312,6 +312,54 @@ export function ensureSerrStyles() {
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
+    .monwui-serr-issues {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .monwui-serr-issues-title {
+      color: #ffb703;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .monwui-serr-issue {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-left: 3px solid #fb8500;
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .monwui-serr-issue-head {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+    }
+    .monwui-serr-issue-type {
+      color: #ffb703;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .monwui-serr-issue-status {
+      color: rgba(255,255,255,0.6);
+      font-size: 11px;
+    }
+    .monwui-serr-issue-title {
+      color: rgba(255,255,255,0.92);
+      font-size: 13px;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+    .monwui-serr-issue-message {
+      color: rgba(255,255,255,0.7);
+      font-size: 12px;
+      line-height: 1.5;
+      margin-top: 2px;
+    }
     .monwui-serr-empty,
     .monwui-serr-error,
     .monwui-serr-loading {

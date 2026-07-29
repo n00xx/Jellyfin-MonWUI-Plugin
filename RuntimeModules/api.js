@@ -313,7 +313,7 @@ async function __destroyGmmpBeforeVideoPlayNow() {
   }
 }
 
-async function startResolvedVideoPlayback({ itemId, item, requesterUserId, persistDebug }) {
+async function startResolvedVideoPlayback({ itemId, item, requesterUserId, persistDebug, trackSelection = null }) {
   const normalizedItemId = String(itemId || "");
   if (isLiveTvPlaybackItem(item)) {
     persistDebug?.({
@@ -336,7 +336,8 @@ async function startResolvedVideoPlayback({ itemId, item, requesterUserId, persi
 
   const localKick = await tryLocalPlaybackStart(normalizedItemId, {
     startPositionTicks: resumeTicks,
-    item
+    item,
+    trackSelection
   }).catch(() => ({ tried: false, started: false, attempts: [] }));
 
   if (localKick?.started) {
@@ -2350,6 +2351,21 @@ function buildLocalPlaybackItemStub(item = null, itemId = "", startPositionTicks
   return stub;
 }
 
+// Jellyfin takes -1 as "no subtitles"; any other negative value means "leave it alone".
+// Returned as a partial payload so each start path can spread it into whatever shape it uses.
+function buildTrackSelectionPayload({ audioStreamIndex = null, subtitleStreamIndex = null } = {}) {
+  const payload = {};
+  const audio = Number(audioStreamIndex);
+  if (Number.isFinite(audio) && audio >= 0) payload.audioStreamIndex = audio;
+  const subtitle = Number(subtitleStreamIndex);
+  if (Number.isFinite(subtitle) && subtitle >= -1) payload.subtitleStreamIndex = subtitle;
+  return payload;
+}
+
+function hasTrackSelection(trackSelection) {
+  return !!trackSelection && Object.keys(trackSelection).length > 0;
+}
+
 async function tryWebpackShortcutPlaybackStart(itemId, { startPositionTicks = 0, item = null } = {}) {
   const attempts = [];
   const req = getWebpackRequireForPlayNow();
@@ -2425,7 +2441,7 @@ async function tryWebpackShortcutPlaybackStart(itemId, { startPositionTicks = 0,
   }
 }
 
-async function tryWebpackPlaybackManagerStart(itemId, { startPositionTicks = 0, item = null } = {}) {
+async function tryWebpackPlaybackManagerStart(itemId, { startPositionTicks = 0, item = null, trackSelection = null } = {}) {
   const attempts = [];
   const req = getWebpackRequireForPlayNow();
   if (!req) {
@@ -2474,7 +2490,8 @@ async function tryWebpackPlaybackManagerStart(itemId, { startPositionTicks = 0, 
 
     const payload = {
       ids: [stub.Id],
-      serverId: stub.ServerId
+      serverId: stub.ServerId,
+      ...(trackSelection || {})
     };
     if (stub.UserData?.PlaybackPositionTicks > 0) {
       payload.startPositionTicks = stub.UserData.PlaybackPositionTicks;
@@ -2505,7 +2522,7 @@ async function tryWebpackPlaybackManagerStart(itemId, { startPositionTicks = 0, 
   }
 }
 
-async function tryLocalPlaybackStart(itemId, { startPositionTicks = 0, item = null } = {}) {
+async function tryLocalPlaybackStart(itemId, { startPositionTicks = 0, item = null, trackSelection = null } = {}) {
   const normalizedId = String(itemId || "").trim();
   if (!normalizedId) {
     return { tried: false, started: false, attempts: [] };
@@ -2517,16 +2534,17 @@ async function tryLocalPlaybackStart(itemId, { startPositionTicks = 0, item = nu
 
   const attempts = [];
   const cappedStartTicks = Math.max(0, Math.floor(Number(startPositionTicks) || 0));
-  const basePlayPayload = { ids: [normalizedId] };
+  const basePlayPayload = { ids: [normalizedId], ...(trackSelection || {}) };
   if (cappedStartTicks > 0) basePlayPayload.startPositionTicks = cappedStartTicks;
-  const playItemsPayload = item ? { items: [item] } : null;
+  const playItemsPayload = item ? { items: [item], ...(trackSelection || {}) } : null;
   if (playItemsPayload && cappedStartTicks > 0) {
     playItemsPayload.startPositionTicks = cappedStartTicks;
   }
 
   const webpackPlaybackKick = await tryWebpackPlaybackManagerStart(normalizedId, {
     startPositionTicks: cappedStartTicks,
-    item
+    item,
+    trackSelection
   }).catch(() => ({ tried: false, started: false, attempts: [] }));
   if (Array.isArray(webpackPlaybackKick?.attempts)) {
     attempts.push(...webpackPlaybackKick.attempts);
@@ -2539,10 +2557,15 @@ async function tryLocalPlaybackStart(itemId, { startPositionTicks = 0, item = nu
     };
   }
 
-  const webpackShortcutKick = await tryWebpackShortcutPlaybackStart(normalizedId, {
-    startPositionTicks: cappedStartTicks,
-    item
-  }).catch(() => ({ tried: false, started: false, attempts: [] }));
+  // The shortcut path drives playback through a synthetic DOM button, so it has nowhere to put
+  // stream indices. When the caller picked tracks, fall straight through to the method loop below
+  // rather than starting playback that silently ignores the selection.
+  const webpackShortcutKick = hasTrackSelection(trackSelection)
+    ? { tried: false, started: false, attempts: [{ target: "webpack", method: "shortcut", ok: false, err: "skipped: track selection requested" }] }
+    : await tryWebpackShortcutPlaybackStart(normalizedId, {
+        startPositionTicks: cappedStartTicks,
+        item
+      }).catch(() => ({ tried: false, started: false, attempts: [] }));
   if (Array.isArray(webpackShortcutKick?.attempts)) {
     attempts.push(...webpackShortcutKick.attempts);
   }
@@ -2668,8 +2691,9 @@ function getActivePlayNowInFlight(itemId) {
   return __playNowInFlight.promise;
 }
 
-export async function playNow(itemId) {
+export async function playNow(itemId, { audioStreamIndex = null, subtitleStreamIndex = null } = {}) {
   const playNowRequestId = String(itemId || "").trim();
+  const trackSelection = buildTrackSelectionPayload({ audioStreamIndex, subtitleStreamIndex });
   notifyPlaybackStartRequested({
     source: "api.playNow",
     itemId: playNowRequestId
@@ -2866,7 +2890,8 @@ export async function playNow(itemId) {
       itemId,
       item,
       requesterUserId,
-      persistDebug
+      persistDebug,
+      trackSelection
     });
   } catch (err) {
     setLastPlayNowBlockReason("");

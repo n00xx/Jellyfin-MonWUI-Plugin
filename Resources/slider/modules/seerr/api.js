@@ -175,6 +175,31 @@ export async function declineSerrRequest(id) {
   });
 }
 
+// Jellyseerr issue types.
+export const SERR_ISSUE_TYPE = Object.freeze({
+  VIDEO: 1,
+  AUDIO: 2,
+  SUBTITLE: 3,
+  OTHER: 4,
+});
+
+export async function createSerrIssue({ issueType, mediaId, message = "", problemSeason = 0, problemEpisode = 0 } = {}) {
+  return request("/issue", {
+    method: "POST",
+    body: JSON.stringify({ issueType, mediaId, message, problemSeason, problemEpisode })
+  });
+}
+
+// Resolves to { ok:false, issues:[] } when the instance has issues turned off, so callers can
+// hide the entry point instead of showing an error the user cannot act on.
+export async function listSerrIssues() {
+  try {
+    return await request("/issues");
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error || ""), issues: [] };
+  }
+}
+
 export async function withdrawSerrRequest(id) {
   return request(`/requests/${encodeURIComponent(String(id || ""))}/withdraw`, {
     method: "POST",

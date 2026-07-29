@@ -18,6 +18,53 @@ import {
   requestSerrMissingSyntheticItem
 } from "./seerr/itemPageBridge.js";
 
+// --- Spanish audio preference -----------------------------------------------------------------
+// Two passes, because the two facts live in different fields: the ISO code says the track is
+// Spanish, and only the title distinguishes Latin American from European Spanish. A track
+// labelled "spa • EAC3 • BTM DDP5.1" carries no region at all, so the code has to be enough on
+// its own, with the title used to break ties when several Spanish tracks exist.
+const SPANISH_CODES = new Set(["spa", "es", "esp", "es-419", "es-mx", "es-la"]);
+const LATAM_HINTS = /latino|latinoam|latin\s*america|americ[aá]\s*latina|\bmx\b|m[eé]xic/i;
+const EUROPEAN_HINTS = /castellano|european|espa[nñ]a|iberic|\bes-es\b/i;
+
+// Jellyfin takes -1 as "no subtitles".
+const SUBTITLE_OFF_INDEX = -1;
+
+function streamSearchText(stream) {
+  return [stream?.DisplayTitle, stream?.Title, stream?.Language, stream?.LocalizedTitle]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function isSpanishStream(stream) {
+  const code = String(stream?.Language || "").trim().toLowerCase();
+  if (SPANISH_CODES.has(code)) return true;
+  return /espa[nñ]ol|spanish|latino/i.test(streamSearchText(stream));
+}
+
+// Highest score wins: an explicitly Latin American track beats a generic Spanish one, which beats
+// a track flagged as European Spanish.
+function spanishPreferenceScore(stream) {
+  const text = streamSearchText(stream);
+  if (LATAM_HINTS.test(text)) return 3;
+  if (EUROPEAN_HINTS.test(text)) return 1;
+  return 2;
+}
+
+function pickPreferredAudioStream(streams = []) {
+  if (!Array.isArray(streams) || !streams.length) return null;
+  const spanish = streams.filter(isSpanishStream);
+  if (spanish.length) {
+    return spanish.reduce((best, stream) =>
+      spanishPreferenceScore(stream) > spanishPreferenceScore(best) ? stream : best);
+  }
+  return streams.find((stream) => stream?.IsDefault) || streams[0] || null;
+}
+
+// Mirrors OPEN_HOVER_DELAY_MS in hoverTrailerModal.js. Duplicated rather than imported so this
+// module never forces that 120 KB bundle to load when hover trailers are switched off.
+const EPISODE_HOVER_DELAY_MS = 500;
+
 const config = getConfig();
 const labels =
   (typeof getLanguageLabels === "function" ? getLanguageLabels() : null) ||
@@ -2183,18 +2230,7 @@ function formatDateTime(ts) {
   }
 }
 
-function formatFinishTime(runtimeTicks, playbackTicks = 0) {
-  const totalTicks = Math.max(Number(runtimeTicks || 0), 0);
-  const watchedTicks = Math.max(Number(playbackTicks || 0), 0);
-  const remainingTicks = Math.max(totalTicks - watchedTicks, 0);
-  if (!remainingTicks) return "";
-  return formatDateTime(Date.now() + ticksToMs(remainingTicks));
-}
 
-function formatCommunityRating(value) {
-  const rating = Number(value);
-  return Number.isFinite(rating) ? `★ ${rating.toFixed(1)}` : "";
-}
 
 function formatBitrate(value) {
   const bitrate = Number(value || 0);
@@ -2235,22 +2271,7 @@ function parseNumberLike(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getPeopleNames(item, type, limit = 8) {
-  return uniqTextList(
-    (Array.isArray(item?.People) ? item.People : [])
-      .filter((person) => safeText(person?.Type).toLowerCase() === safeText(type).toLowerCase())
-      .map((person) => person?.Name)
-  ).slice(0, limit);
-}
 
-function getActorNames(item, limit = 8) {
-  const roles = new Set(["actor", "gueststar", "voice"]);
-  return uniqTextList(
-    (Array.isArray(item?.People) ? item.People : [])
-      .filter((person) => roles.has(safeText(person?.Type).toLowerCase()))
-      .map((person) => person?.Name)
-  ).slice(0, limit);
-}
 
 function getStudioEntries(item, limit = 6) {
   const out = [];
@@ -2280,41 +2301,7 @@ function getMediaStreamsByType(item, type) {
     .filter((stream) => safeText(stream?.Type).toLowerCase() === safeText(type).toLowerCase());
 }
 
-function getPrimaryVideoStream(item) {
-  return getMediaStreamsByType(item, "Video")[0] || null;
-}
 
-function getVideoQualityLabel(videoStream) {
-  if (!videoStream || safeText(videoStream?.Type).toLowerCase() !== "video") return "";
-
-  const height = Math.max(
-    Number(videoStream?.Height || 0),
-    Number(videoStream?.RealHeight || 0)
-  );
-  const width = Math.max(
-    Number(videoStream?.Width || 0),
-    Number(videoStream?.RealWidth || 0)
-  );
-  const range = safeText(videoStream?.VideoRangeType).toUpperCase();
-  const codec = safeText(videoStream?.Codec).toUpperCase();
-  const fps = parseNumberLike(videoStream?.RealFrameRate || videoStream?.AverageFrameRate || videoStream?.FrameRate);
-  const bitrate = formatBitrate(videoStream?.BitRate);
-
-  let quality = "";
-  if (height >= 2160 || width >= 3800) quality = "4K";
-  else if (height >= 1440) quality = "1440p";
-  else if (height >= 1080 || width >= 1900) quality = "1080p";
-  else if (height >= 720) quality = "720p";
-  else if (height >= 480) quality = "480p";
-  else if (height > 0) quality = `${Math.round(height)}p`;
-
-  const dynamicRange = range.includes("DOVI")
-    ? "Dolby Vision"
-    : (range.includes("HDR") ? "HDR" : "");
-  const fpsText = fps > 0 ? `${fps >= 10 ? fps.toFixed(0) : fps.toFixed(2)} fps`.replace(/\.00(?= fps)/, "") : "";
-
-  return [quality, dynamicRange, codec, fpsText, bitrate].filter(Boolean).join(" • ");
-}
 
 function formatAudioStream(stream) {
   const language = safeText(stream?.DisplayLanguage || stream?.Language || stream?.LanguageCode);
@@ -2340,52 +2327,8 @@ function formatSubtitleStream(stream) {
   return [language, codec, title, flags.join(" • ")].filter(Boolean).join(" • ");
 }
 
-function renderPreviewStats(stats = []) {
-  if (!stats.length) return "";
-  return `
-    <div class="jmsdm-preview-stats">
-      ${stats.map((stat) => `
-        <div class="jmsdm-preview-stat">
-          <div class="jmsdm-preview-stat-label">${escapeHtml(stat.label)}</div>
-          <div class="jmsdm-preview-stat-value">${escapeHtml(stat.value)}</div>
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
 
-function renderPreviewFieldSection(title, fields = []) {
-  const visible = (Array.isArray(fields) ? fields : []).filter((field) => safeText(field?.value));
-  if (!visible.length) return "";
 
-  return `
-    <section class="jmsdm-preview-section">
-      <h4 class="jmsdm-preview-section-title">${escapeHtml(title)}</h4>
-      <div class="jmsdm-preview-field-list">
-        ${visible.map((field) => `
-          <div class="jmsdm-preview-field">
-            <div class="jmsdm-preview-field-label">${escapeHtml(field.label)}</div>
-            <div class="jmsdm-preview-field-value">${escapeHtml(field.value)}</div>
-          </div>
-        `).join("")}
-      </div>
-    </section>
-  `;
-}
-
-function renderPreviewListSection(title, items = []) {
-  const visible = (Array.isArray(items) ? items : []).filter(Boolean);
-  if (!visible.length) return "";
-
-  return `
-    <section class="jmsdm-preview-section">
-      <h4 class="jmsdm-preview-section-title">${escapeHtml(title)}</h4>
-      <ul class="jmsdm-preview-list">
-        ${visible.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-      </ul>
-    </section>
-  `;
-}
 
 function renderPreviewTagSection(title, items = []) {
   const visible = (Array.isArray(items) ? items : []).filter(Boolean);
@@ -3827,51 +3770,22 @@ export async function openDetailsModal({ itemId, item: preloadedItem = null, det
     (Array.isArray(baseItem?.MediaStreams) && baseItem.MediaStreams.length)
       ? baseItem
       : displayItem;
-  const creditSource =
-    (Array.isArray(displayItem?.People) && displayItem.People.length)
-      ? displayItem
-      : baseItem;
   const studioSource =
     (Array.isArray(displayItem?.Studios) && displayItem.Studios.length)
       ? displayItem
       : baseItem;
-  const runtimeTicks = Number(
-    baseItem?.RunTimeTicks ||
-    displayItem?.RunTimeTicks ||
-    baseItem?.CumulativeRunTimeTicks ||
-    displayItem?.CumulativeRunTimeTicks ||
-    0
-  );
-  const playbackTicks = Number(
-    baseItem?.UserData?.PlaybackPositionTicks ||
-    displayItem?.UserData?.PlaybackPositionTicks ||
-    0
-  );
-  const remaining = runtimeTicks > playbackTicks ? fmtRuntime(runtimeTicks - playbackTicks) : "";
-  const finishTime = playbackTicks > 0 ? formatFinishTime(runtimeTicks, playbackTicks) : "";
-  const communityRatingText = formatCommunityRating(displayItem?.CommunityRating || baseItem?.CommunityRating);
   const trailerReleaseState = safeText(baseItem?.__tmdbReleaseLabel || displayItem?.__tmdbReleaseLabel);
   const trailerReleaseValue = safeText(baseItem?.__tmdbReleaseDateLabel || displayItem?.__tmdbReleaseDateLabel || displayItem?.PremiereDate || baseItem?.PremiereDate);
   const trailerSourceValue = safeText(baseItem?.__trailerSourceLabel || displayItem?.__trailerSourceLabel, "TMDb / YouTube");
   const trailerExternalUrl = safeText(baseItem?.__youtubeWatchUrl || displayItem?.__youtubeWatchUrl || baseItem?.RemoteTrailers?.[0]?.Url || displayItem?.RemoteTrailers?.[0]?.Url);
   const trailerPosterUrl = getExternalArtworkUrl(baseItem, "poster") || getExternalArtworkUrl(displayItem, "poster");
   const studioEntries = getStudioEntries(studioSource);
-  const studioNames = studioEntries.map((studio) => studio.name);
   const primaryStudioEntry = studioEntries[0] || null;
-  const directors = isBoxSet ? [] : getPeopleNames(creditSource, "Director", 4);
-  const writers = isBoxSet ? [] : getPeopleNames(creditSource, "Writer", 4);
-  const actors = isBoxSet ? [] : getActorNames(creditSource, 8);
-  const artists = uniqTextList(baseItem?.Artists || displayItem?.Artists || []).slice(0, 8);
   const albumArtist = safeText(baseItem?.AlbumArtist || displayItem?.AlbumArtist);
   const albumName = safeText(baseItem?.Album || displayItem?.Album);
-  const videoStream = isBoxSet ? null : getPrimaryVideoStream(mediaSource);
-  const videoQuality = getVideoQualityLabel(videoStream);
-  const audioTracks = isBoxSet
-    ? []
-    : getMediaStreamsByType(mediaSource, "Audio").map(formatAudioStream).filter(Boolean).slice(0, 4);
-  const subtitleTracks = isBoxSet
-    ? []
-    : getMediaStreamsByType(mediaSource, "Subtitle").map(formatSubtitleStream).filter(Boolean).slice(0, 4);
+  // Raw streams, not formatted strings: the track selector needs stream.Index to pass to playback.
+  const audioStreams = isBoxSet ? [] : getMediaStreamsByType(mediaSource, "Audio");
+  const subtitleStreams = isBoxSet ? [] : getMediaStreamsByType(mediaSource, "Subtitle");
   const seasonEpisodeText = (() => {
     if (!isEpisode) return "";
     const seasonNumber = Number(baseItem?.ParentIndexNumber || 0);
@@ -3895,49 +3809,17 @@ export async function openDetailsModal({ itemId, item: preloadedItem = null, det
         isMusicType ? albumArtist : "",
         isMusicType ? albumName : ""
       ].filter(Boolean).join(" • ");
+  // Community rating and video quality are deliberately absent: the chip row carries the age
+  // classification and the studio only.
   const previewChips = [
     isTrailerItem && trailerReleaseState ? { text: trailerReleaseState, accent: true } : null,
-    communityRatingText ? { text: communityRatingText } : null,
     rating ? { text: rating, accent: true } : null,
-    videoQuality ? { text: videoQuality.split(" • ").slice(0, 2).join(" • ") } : null,
     primaryStudioEntry ? {
       text: primaryStudioEntry.name,
       studioId: primaryStudioEntry.id,
       studioName: primaryStudioEntry.name
     } : null
   ].filter((chip) => safeText(chip?.text)).slice(0, 4);
-  const stats = (isTrailerItem
-    ? [
-        { label: label("trailerReleaseLabel", "Vizyon"), value: trailerReleaseValue || trailerReleaseState },
-        { label: label("trailerSourceLabel", "Kaynak"), value: trailerSourceValue },
-        { label: label("communityRating", "TMDb"), value: community ? `TMDb ${community}` : "" }
-      ]
-    : [
-        { label: label("sure", "Süre"), value: runtime },
-        { label: label("watchlistPreviewRemaining", "Kalan"), value: remaining },
-        { label: label("watchlistPreviewFinishAt", "Bitiş"), value: finishTime },
-        { label: label("watchlistPreviewVideoQuality", "Video"), value: videoQuality || safeText(baseItem?.MediaType || displayItem?.MediaType) },
-        { label: label("yonetmen", "Yönetmen"), value: directors.join(", ") },
-        { label: label("watchlistPreviewStudio", "Stüdyo"), value: studioNames.join(", ") || albumArtist || albumName }
-      ]
-  ).filter((entry) => safeText(entry?.value));
-  const mediaFields = isBoxSet || isTrailerItem
-    ? []
-    : [
-        { label: label("watchlistPreviewVideoTrack", "Video"), value: videoQuality },
-        { label: label("watchlistPreviewAudioCount", "Ses"), value: audioTracks.length ? `${audioTracks.length} ${label("watchlistPreviewTrackSuffix", "parça")}` : "" },
-        { label: label("watchlistPreviewSubtitleCount", "Altyazı"), value: subtitleTracks.length ? `${subtitleTracks.length} ${label("watchlistPreviewTrackSuffix", "parça")}` : "" }
-      ];
-  const creditFields = isBoxSet || isTrailerItem
-    ? []
-    : [
-        { label: label("yonetmen", "Yönetmen"), value: directors.join(", ") },
-        { label: label("watchlistPreviewWriter", "Yazar"), value: writers.join(", ") },
-        { label: label("watchlistPreviewActors", "Oyuncular"), value: actors.join(", ") },
-        { label: label("watchlistPreviewArtists", "Sanatçılar"), value: artists.join(", ") },
-        { label: label("watchlistPreviewAlbum", "Albüm"), value: albumName },
-        { label: label("watchlistPreviewAlbumArtist", "Albüm Sanatçısı"), value: albumArtist }
-      ];
   const trailerInfoFields = [
     { label: label("trailerReleaseLabel", "Vizyon"), value: trailerReleaseValue || trailerReleaseState },
     { label: label("trailerSourceLabel", "Kaynak"), value: trailerSourceValue },
@@ -4219,6 +4101,56 @@ wireMiniCardDelegation();
     `;
   }
 
+  // --- Track picker -----------------------------------------------------------------------
+  // Spanish audio is preselected and subtitles default to Off, so pressing play needs no follow-up
+  // configuration. Series items carry no MediaStreams themselves; episodes resolve their own
+  // tracks at click time in wireEpisodeClicks.
+  const defaultAudioStream = pickPreferredAudioStream(audioStreams);
+
+  const trackSelectorHtml = (audioStreams.length || subtitleStreams.length)
+    ? `
+      <div class="jmsdm-tracks">
+        ${audioStreams.length ? `
+          <div class="jmsdm-track-row">
+            <label class="jmsdm-track-label" for="jmsdm-audio-select">${label("audio", "Audio")}</label>
+            <select class="jmsdm-select jmsdm-track-select" id="jmsdm-audio-select">
+              ${audioStreams.map((stream) => `
+                <option value="${escapeHtml(String(stream?.Index ?? ""))}"${stream === defaultAudioStream ? " selected" : ""}>
+                  ${escapeHtml(formatAudioStream(stream) || label("audio", "Audio"))}
+                </option>
+              `).join("")}
+            </select>
+          </div>
+        ` : ""}
+        ${subtitleStreams.length ? `
+          <div class="jmsdm-track-row">
+            <label class="jmsdm-track-label" for="jmsdm-subtitle-select">${label("subtitle", "Subtítulos")}</label>
+            <select class="jmsdm-select jmsdm-track-select" id="jmsdm-subtitle-select">
+              <option value="${SUBTITLE_OFF_INDEX}" selected>${label("subtitleOff", "Off")}</option>
+              ${subtitleStreams.map((stream) => `
+                <option value="${escapeHtml(String(stream?.Index ?? ""))}">
+                  ${escapeHtml(formatSubtitleStream(stream) || label("subtitle", "Subtítulos"))}
+                </option>
+              `).join("")}
+            </select>
+          </div>
+        ` : ""}
+      </div>
+    `
+    : "";
+
+  const readTrackSelection = () => {
+    const parse = (selector) => {
+      const raw = root.querySelector(selector)?.value;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : null;
+    };
+    return {
+      audioStreamIndex: parse("#jmsdm-audio-select"),
+      subtitleStreamIndex: parse("#jmsdm-subtitle-select"),
+    };
+  };
+
   const actionButtonsHtml = isTrailerItem
     ? `
       <button class="jmsdm-btn primary jmsdm-play">
@@ -4236,6 +4168,9 @@ wireMiniCardDelegation();
     : `
       <button class="jmsdm-btn primary jmsdm-play">
         ${icon("M8 5v14l11-7z")} ${config.languageLabels.playNowLabel || "Şimdi Oynat"}
+      </button>
+      <button type="button" class="jmsdm-btn jmsdm-report" hidden>
+        ${icon("M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z")} ${label("issueReportAction", "Reportar problema")}
       </button>
       <button type="button" class="jmsdm-btn jmsdm-openpage">
         ${icon("M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3z")} ${config.languageLabels.goToPageLabel || "Sayfaya Git"}
@@ -4283,16 +4218,12 @@ wireMiniCardDelegation();
                 </div>
 
                 <div class="jmsdm-preview-body">
+                  ${isTrailerItem ? "" : trackSelectorHtml}
                   <div class="jmsdm-actions">
                     ${actionButtonsHtml}
                   </div>
 
                   <div class="jmsdm-overview">${overview}</div>
-                  ${renderPreviewStats(stats)}
-                  ${renderPreviewFieldSection(label("watchlistPreviewMediaSection", "Medya Özeti"), mediaFields)}
-                  ${renderPreviewListSection(label("watchlistPreviewAudioTracks", "Ses Parçaları"), audioTracks)}
-                  ${renderPreviewListSection(label("watchlistPreviewSubtitleTracks", "Altyazılar"), subtitleTracks)}
-                  ${renderPreviewFieldSection(label("watchlistPreviewCredits", "Künye"), creditFields)}
                   ${renderPreviewTagSection(label("genre", "Tür"), genres)}
                   ${renderPreviewStudioSection(label("watchlistPreviewStudios", "Stüdyolar"), studioEntries)}
                 </div>
@@ -4395,7 +4326,7 @@ wireMiniCardDelegation();
         await startHeroTrailer(root, displayItem, { signal: _abort.signal });
         return;
       }
-      const started = await playNow(baseItem.Id);
+      const started = await playNow(baseItem.Id, readTrackSelection());
       if (!started) return;
       await closeDetailsModal();
       notifyDetailsModalPlay(baseItem.Id);
@@ -4608,6 +4539,25 @@ wireMiniCardDelegation();
     });
   }
 
+  // A Series item exposes no MediaStreams, so the selector above the play button has nothing to
+  // show for a series. Episodes get the same Spanish-audio / subtitles-off treatment by resolving
+  // their own streams at the moment they are played. Failure here degrades to Jellyfin's own
+  // defaults rather than blocking playback.
+  async function resolveEpisodeTrackSelection(episodeId) {
+    try {
+      const details = await fetchItemDetailsFull(episodeId, { signal: _abort.signal });
+      const streams = Array.isArray(details?.MediaStreams) ? details.MediaStreams : [];
+      const audio = pickPreferredAudioStream(streams.filter((s) => s?.Type === "Audio"));
+      const audioIndex = Number(audio?.Index);
+      return {
+        audioStreamIndex: Number.isFinite(audioIndex) ? audioIndex : null,
+        subtitleStreamIndex: SUBTITLE_OFF_INDEX,
+      };
+    } catch {
+      return {};
+    }
+  }
+
   function wireEpisodeClicks() {
     if (root.__episodeDelegated) return;
     root.__episodeDelegated = true;
@@ -4626,7 +4576,7 @@ wireMiniCardDelegation();
         return;
       }
       try {
-        const started = await playNow(epId);
+        const started = await playNow(epId, await resolveEpisodeTrackSelection(epId));
         if (!started) return;
         await closeDetailsModal();
         notifyDetailsModalPlay(epId);
@@ -4638,6 +4588,147 @@ wireMiniCardDelegation();
   }
 
   wireEpisodeClicks();
+
+  // Hovering an episode plays a preview, the same way rows on the home screen do. The open path is
+  // the global bridge hoverTrailerModal installs, so nothing about the preview itself is
+  // reimplemented here — only the intent timing and the delegation. Deliberately not imported:
+  // when hover trailers are disabled the module never loads, and the fallbacks below no-op.
+  function wireEpisodeHoverPreview() {
+    if (root.__episodeHoverDelegated) return;
+    root.__episodeHoverDelegated = true;
+
+    let hoverTimer = null;
+    let hoveredEl = null;
+    let openSeq = 0;
+
+    const clearHoverTimer = () => {
+      if (hoverTimer) {
+        clearTimeout(hoverTimer);
+        hoverTimer = null;
+      }
+    };
+
+    const openHoverPreview = (itemId, anchorEl) => {
+      if (typeof window.tryOpenHoverModal === "function") {
+        try { window.tryOpenHoverModal(itemId, anchorEl, { bypass: true }); return; } catch {}
+      }
+      if (window.__hoverTrailer && typeof window.__hoverTrailer.open === "function") {
+        try { window.__hoverTrailer.open({ itemId, anchor: anchorEl, bypass: true }); return; } catch {}
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("jms:hoverTrailer:open", {
+          detail: { itemId, anchor: anchorEl, bypass: true }
+        }));
+      } catch {}
+    };
+
+    const closeHoverPreview = () => {
+      if (typeof window.closeHoverPreview === "function") {
+        try { window.closeHoverPreview(); return; } catch {}
+      }
+      if (window.__hoverTrailer && typeof window.__hoverTrailer.close === "function") {
+        try { window.__hoverTrailer.close(); return; } catch {}
+      }
+      try { window.dispatchEvent(new CustomEvent("jms:hoverTrailer:close")); } catch {}
+    };
+
+    const resolveHoverTarget = (event) => {
+      const el = event?.target?.closest?.(".jmsdm-ep");
+      if (!el || !root.contains(el)) return null;
+      // Synthetic Seerr placeholders have no playable media behind them.
+      if (el.getAttribute("data-monwui-serr-missing-preview") === "1") return null;
+      const epId = el.getAttribute("data-epid");
+      return epId ? { el, epId } : null;
+    };
+
+    addEventListener(root, "pointerover", (e) => {
+      if (e?.pointerType === "touch") return;
+      const target = resolveHoverTarget(e);
+      if (!target) return;
+      if (target.el === hoveredEl) return;
+
+      hoveredEl = target.el;
+      clearHoverTimer();
+
+      const seq = ++openSeq;
+      hoverTimer = setTimeout(() => {
+        if (seq !== openSeq) return;
+        if (!hoveredEl?.isConnected || !hoveredEl.matches(":hover")) return;
+        root.__episodeHoverOpen = true;
+        openHoverPreview(target.epId, hoveredEl);
+      }, EPISODE_HOVER_DELAY_MS);
+    }, { passive: true });
+
+    addEventListener(root, "pointerout", (e) => {
+      if (e?.pointerType === "touch") return;
+      const el = e?.target?.closest?.(".jmsdm-ep");
+      if (!el || el !== hoveredEl) return;
+      // pointerout also fires moving between children of the same card.
+      if (el.contains(e?.relatedTarget)) return;
+
+      openSeq++;
+      hoveredEl = null;
+      clearHoverTimer();
+      if (root.__episodeHoverOpen) {
+        root.__episodeHoverOpen = false;
+        closeHoverPreview();
+      }
+    }, { passive: true });
+
+    // Clicking through to playback must not leave an orphaned preview behind.
+    addEventListener(root, "click", () => {
+      openSeq++;
+      hoveredEl = null;
+      clearHoverTimer();
+      if (root.__episodeHoverOpen) {
+        root.__episodeHoverOpen = false;
+        closeHoverPreview();
+      }
+    }, true);
+  }
+
+  wireEpisodeHoverPreview();
+
+  // The report button only appears once Jellyseerr confirms it knows this title: without an
+  // internal media id there is nothing to file an issue against, and a button that always fails
+  // is worse than no button. Loaded lazily so installs without Seerr never fetch the module.
+  function wireIssueReporter() {
+    const reportBtn = root.querySelector(".jmsdm-report");
+    if (!reportBtn || isTrailerItem || isBoxSet) return;
+
+    let mediaId = 0;
+    let reporterModule = null;
+
+    (async () => {
+      try {
+        const { tmdbId, kind } = await getTmdbIdForItem(baseItem, { signal: _abort.signal });
+        if (!tmdbId || _abort.signal.aborted) return;
+
+        reporterModule = await import("./seerr/issueReporter.js");
+        mediaId = await reporterModule.resolveSerrMediaId({ tmdbId, kind });
+        if (!mediaId || _abort.signal.aborted || !reportBtn.isConnected) return;
+
+        reportBtn.hidden = false;
+      } catch (err) {
+        console.warn("[JMSFusion] Issue reporter unavailable:", err);
+      }
+    })();
+
+    addEventListener(reportBtn, "click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!mediaId || !reporterModule) return;
+
+      reporterModule.openIssueReporter({
+        mediaId,
+        title: name,
+        seasonNumber: Number(baseItem?.ParentIndexNumber) || 0,
+        episodeNumber: Number(baseItem?.IndexNumber) || 0,
+      });
+    });
+  }
+
+  wireIssueReporter();
 
   function wireMiniCardClicks() {
     root.querySelectorAll(".jmsdm-minicard").forEach((el) => {

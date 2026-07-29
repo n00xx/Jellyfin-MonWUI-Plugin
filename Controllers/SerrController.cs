@@ -88,6 +88,19 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             public string? Name { get; set; }
         }
 
+        /// <summary>
+        /// MediaId here is Jellyseerr's internal media row id, not a TMDb id. The client reads it
+        /// from mediaInfo.id on the metadata responses this controller already proxies verbatim.
+        /// </summary>
+        public sealed class SerrCreateIssueRequest
+        {
+            public int? IssueType { get; set; }
+            public int? MediaId { get; set; }
+            public string? Message { get; set; }
+            public int? ProblemSeason { get; set; }
+            public int? ProblemEpisode { get; set; }
+        }
+
         [HttpGet("access")]
         public IActionResult GetAccess()
         {
@@ -279,6 +292,76 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
         public async Task<IActionResult> GetCollectionMetadata(int id, [FromQuery] string? language = null, CancellationToken cancellationToken = default)
         {
             return await ProxySerrMetadata("/collection/" + id.ToString(CultureInfo.InvariantCulture), language, cancellationToken);
+        }
+
+        [HttpPost("issue")]
+        public async Task<IActionResult> CreateIssue([FromBody] SerrCreateIssueRequest? request, CancellationToken cancellationToken)
+        {
+            var userCheck = TryGetRequestUser();
+            if (userCheck.Result is not null)
+            {
+                return userCheck.Result;
+            }
+
+            var cfg = GetConfig();
+            var guard = EnsureConfigured(cfg);
+            if (guard is not null) return guard;
+
+            // Jellyseerr issue types: 1 video, 2 audio, 3 subtitle, 4 other.
+            var issueType = request?.IssueType ?? 0;
+            if (issueType < 1 || issueType > 4)
+            {
+                return BadRequest(new { ok = false, error = "issueType must be between 1 and 4." });
+            }
+
+            var mediaId = request?.MediaId ?? 0;
+            if (mediaId <= 0)
+            {
+                return BadRequest(new { ok = false, error = "mediaId is required." });
+            }
+
+            var body = new Dictionary<string, object>
+            {
+                ["issueType"] = issueType,
+                ["mediaId"] = mediaId,
+                ["message"] = CleanText(request?.Message, 500) ?? string.Empty
+            };
+            if (request?.ProblemSeason is int season && season > 0) body["problemSeason"] = season;
+            if (request?.ProblemEpisode is int episode && episode > 0) body["problemEpisode"] = episode;
+
+            var response = await SendSerrAsync(cfg, HttpMethod.Post, "/issue", body, cancellationToken);
+            NoCache();
+            if (!response.Ok)
+            {
+                return StatusCode(response.StatusCode > 0 ? response.StatusCode : 502, new { ok = false, error = response.Error });
+            }
+
+            return Ok(new { ok = true, issue = response.Payload });
+        }
+
+        [HttpGet("issues")]
+        public async Task<IActionResult> ListIssues(CancellationToken cancellationToken)
+        {
+            var userCheck = TryGetRequestUser();
+            if (userCheck.Result is not null)
+            {
+                return userCheck.Result;
+            }
+
+            var cfg = GetConfig();
+            var guard = EnsureConfigured(cfg);
+            if (guard is not null) return guard;
+
+            var response = await SendSerrAsync(cfg, HttpMethod.Get, "/issue?take=50&sort=added", null, cancellationToken);
+            NoCache();
+            if (!response.Ok)
+            {
+                // An instance with issues disabled answers 404/403 here; the client hides the UI
+                // rather than surfacing an error the user cannot act on.
+                return Ok(new { ok = false, error = response.Error, issues = Array.Empty<object>() });
+            }
+
+            return Ok(new { ok = true, issues = response.Payload });
         }
 
         [HttpGet("metadata/collection/search")]
