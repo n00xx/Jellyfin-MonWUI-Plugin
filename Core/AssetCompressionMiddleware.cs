@@ -119,8 +119,13 @@ namespace Jellyfin.Plugin.JMSFusion.Core
                 return;
             }
 
+            // Assets embedded in the assembly cannot change while the process lives, so their
+            // encodings are safe to keep. A configured ScriptDirectory serves the same paths from
+            // a mutable directory on disk, where caching would mean edits never appear.
+            var cacheable = string.IsNullOrWhiteSpace(JMSFusionPlugin.Instance?.Configuration?.ScriptDirectory);
             var cacheKey = $"{encoding}:{ctx.Request.Path.Value}";
-            if (!_cache.TryGet(cacheKey, out var payload) || payload is null)
+
+            if (!cacheable || !_cache.TryGet(cacheKey, out var payload) || payload is null)
             {
                 var raw = buffer.ToArray();
                 payload = AssetCompressionCache.Compress(raw, encoding);
@@ -132,11 +137,20 @@ namespace Jellyfin.Plugin.JMSFusion.Core
                     return;
                 }
 
-                _cache.Store(cacheKey, payload);
+                if (cacheable) _cache.Store(cacheKey, payload);
             }
 
             ctx.Response.Headers[HeaderNames.ContentEncoding] = encoding;
             ctx.Response.Headers.Append(HeaderNames.Vary, HeaderNames.AcceptEncoding);
+
+            // The identity, gzip and brotli forms of an asset are distinct representations and
+            // must not share a validator, or a shared cache can hand a client the wrong encoding.
+            var etag = ctx.Response.Headers[HeaderNames.ETag].ToString();
+            if (!string.IsNullOrEmpty(etag))
+            {
+                ctx.Response.Headers[HeaderNames.ETag] = $"{etag.TrimEnd('"')}:{encoding}\"";
+            }
+
             ctx.Response.ContentLength = payload.Length;
 
             await originalBody.WriteAsync(payload, 0, payload.Length, ctx.RequestAborted);

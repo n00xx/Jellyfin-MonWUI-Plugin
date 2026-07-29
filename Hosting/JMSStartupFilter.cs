@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Net.Http.Headers;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -79,6 +80,19 @@ namespace Jellyfin.Plugin.JMSFusion
                     var reqLogger = ctx.RequestServices.GetRequiredService<ILogger<JMSStartupFilter>>();
                     var originalAcceptEncoding = ctx.Request.Headers["Accept-Encoding"].ToString();
                     ctx.Request.Headers["Accept-Encoding"] = "identity";
+
+                    // Conditional validators are stripped for the same reason Accept-Encoding is:
+                    // a 304 from Jellyfin's static handler means the browser reuses its cached
+                    // copy of the *patched* HTML, which still names the previous
+                    // /slider~v-{version}/ segment. Those asset URLs are now served immutable, so
+                    // the browser would not re-request them for a year and the upgrade would
+                    // never reach the client. Forcing a 200 means the document is always
+                    // re-patched with the running version. It is compressed on the way out, so
+                    // the cost is a few KB per navigation.
+                    var originalIfNoneMatch = ctx.Request.Headers[HeaderNames.IfNoneMatch].ToString();
+                    var originalIfModifiedSince = ctx.Request.Headers[HeaderNames.IfModifiedSince].ToString();
+                    ctx.Request.Headers.Remove(HeaderNames.IfNoneMatch);
+                    ctx.Request.Headers.Remove(HeaderNames.IfModifiedSince);
 
                     var originalBody = ctx.Response.Body;
                     await using var mem = new MemoryStream();
@@ -172,6 +186,16 @@ namespace Jellyfin.Plugin.JMSFusion
                             ctx.Request.Headers["Accept-Encoding"] = originalAcceptEncoding;
                         }
 
+                        if (!string.IsNullOrEmpty(originalIfNoneMatch))
+                        {
+                            ctx.Request.Headers[HeaderNames.IfNoneMatch] = originalIfNoneMatch;
+                        }
+
+                        if (!string.IsNullOrEmpty(originalIfModifiedSince))
+                        {
+                            ctx.Request.Headers[HeaderNames.IfModifiedSince] = originalIfModifiedSince;
+                        }
+
                         ctx.Response.Body = originalBody;
                     }
                 });
@@ -217,11 +241,24 @@ namespace Jellyfin.Plugin.JMSFusion
             return output.ToArray();
         }
 
+        /// <summary>
+        /// Matches only the plugin's static asset routes.
+        /// </summary>
+        /// <remarks>
+        /// This must stay an explicit allow-list. The compression middleware caches response
+        /// bodies keyed by path alone, which is safe for immutable files and catastrophic for
+        /// anything user-specific — and most of what lives under <c>/Plugins/JMSFusion</c> is a
+        /// per-user API: watchlist, parental-pin, UserSettings, ScopedCache, config, comments.
+        /// Matching the prefix would cache the first caller's response and serve it to everyone.
+        /// </remarks>
         private static bool IsPluginAssetRequest(HttpContext ctx)
         {
             var path = ctx.Request.Path;
+
             return path.StartsWithSegments("/slider")
-                || path.StartsWithSegments("/Plugins/JMSFusion", StringComparison.OrdinalIgnoreCase);
+                || path.StartsWithSegments("/Plugins/JMSFusion/runtime", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWithSegments("/Plugins/JMSFusion/assets", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWithSegments("/JMSFusion/runtime", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsIndexRequest(PathString path)
