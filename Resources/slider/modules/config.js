@@ -496,6 +496,66 @@ function readSmartAutoPause() {
   return sapLegacy;
 }
 
+// Settings are not merely browser-local: storagePreload.js swaps localStorage for a bridge that
+// hydrates from /Plugins/JMSFusion/UserSettings per device profile and writes back. Every existing
+// profile therefore already holds a value for every key here, and changing a default above only
+// reaches installs that have never stored one. SHIPPED_DEFAULTS is how a release re-pins the set
+// it cares about: it overwrites these keys exactly once per revision, and anything the user
+// changes afterwards sticks.
+const DEFAULTS_REV_KEY = 'jmsDefaultsRev';
+const DEFAULTS_REV = 1;
+const SHIPPED_DEFAULTS = Object.freeze({
+  // Trailer audio
+  previewTrailerVolumeLimit: true,
+  previewTrailerVolumePercent: 40,
+  // Slider hover
+  previewPlaybackMode: 'trailerThenVideo',
+  hideOriginalTitleIfSame: true,
+  showDirectorWriter: false,
+  // Hover trailer
+  globalPreviewMode: 'studioMini',
+  studioMiniTrailerPopover: true,
+  preferTrailersInPreviewModal: true,
+  onlyTrailerInPreviewModal: false,
+  // Notifications
+  enableToastNew: false,
+  enableToastSystem: true,
+  enableCounterSystem: false,
+  toastDuration: 5000,
+  enableRenderResume: true
+});
+
+let __shippedDefaultsApplied = false;
+
+/**
+ * Writes SHIPPED_DEFAULTS once per revision. Returns true when it wrote anything, so the caller
+ * can rebuild rather than hand back a config computed from the pre-migration values.
+ */
+function applyShippedDefaultsOnce(cfg) {
+  if (__shippedDefaultsApplied) return false;
+  // Set before any write: the caller re-enters getConfig() and this must not recurse.
+  __shippedDefaultsApplied = true;
+
+  try {
+    // Clients under a forced global snapshot take the admin's published values wholesale, so
+    // re-pinning defaults locally would be overwritten anyway — and would be blocked for
+    // non-admins by updateConfig's global lock.
+    if (cfg?.forceGlobalUserSettings && !cfg?.currentUserIsAdmin) return false;
+
+    const storedRev = Number(localStorage.getItem(DEFAULTS_REV_KEY) || 0);
+    if (Number.isFinite(storedRev) && storedRev >= DEFAULTS_REV) return false;
+
+    for (const [key, value] of Object.entries(SHIPPED_DEFAULTS)) {
+      const next = typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value);
+      localStorage.setItem(key, next);
+    }
+    localStorage.setItem(DEFAULTS_REV_KEY, String(DEFAULTS_REV));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function getConfig() {
   const forceGlobal = __globalOverride?.forceGlobal === true;
   if (window.__JMS_GLOBAL_CONFIG__) {
@@ -555,11 +615,11 @@ export function getConfig() {
         else if (legacy === 'false') fallback = 'video';
       }
 
-      const resolved = fallback || 'video';
+      const resolved = fallback || 'trailerThenVideo';
       localStorage.setItem('previewPlaybackMode', resolved);
       return resolved;
     } catch {
-      return 'video';
+      return 'trailerThenVideo';
     }
   }
   function readPauseOverlay() {
@@ -761,7 +821,7 @@ export function getConfig() {
     showPlayedButton: localStorage.getItem('showPlayedButton') !== 'false',
     showCast: localStorage.getItem('showCast') !== 'false',
     detailUrl: localStorage.getItem('detailUrl') !== 'false',
-    hideOriginalTitleIfSame: localStorage.getItem('hideOriginalTitleIfSame') === 'true',
+    hideOriginalTitleIfSame: localStorage.getItem('hideOriginalTitleIfSame') !== 'false',
     backdropImageType: localStorage.getItem('backdropImageType') || 'backdropUrl',
     previewPlaybackMode,
     enableTrailerPlayback,
@@ -817,12 +877,12 @@ export function getConfig() {
     previewModal: localStorage.getItem('previewModal') !== 'false',
     allPreviewModal: localStorage.getItem('allPreviewModal') !== 'false',
     previewTrailerStartMuted: localStorage.getItem('previewTrailerStartMuted') === 'true',
-    previewTrailerVolumeLimit: localStorage.getItem('previewTrailerVolumeLimit') === 'true',
+    previewTrailerVolumeLimit: localStorage.getItem('previewTrailerVolumeLimit') !== 'false',
     previewTrailerVolumePercent: (() => {
-      const n = parseFloat(String(localStorage.getItem('previewTrailerVolumePercent') ?? '50').replace(',', '.'));
-      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+      const n = parseFloat(String(localStorage.getItem('previewTrailerVolumePercent') ?? '40').replace(',', '.'));
+      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 40;
     })(),
-    globalPreviewMode: localStorage.getItem('globalPreviewMode') || 'modal',
+    globalPreviewMode: localStorage.getItem('globalPreviewMode') || 'studioMini',
     dotPreviewPlaybackMode: readDotPreviewMode(),
     preferTrailersInPreviewModal: localStorage.getItem('preferTrailersInPreviewModal') !== 'false',
     onlyTrailerInPreviewModal: localStorage.getItem('onlyTrailerInPreviewModal') === 'true' ? true : false,
@@ -934,14 +994,14 @@ export function getConfig() {
     disableAllPlayback,
 
     enableNotifications: localStorage.getItem('enableNotifications') !== 'false',
-    enableToastNew: localStorage.getItem('enableToastNew') !== 'false',
+    enableToastNew: localStorage.getItem('enableToastNew') === 'true',
     enableToastSystem: localStorage.getItem('enableToastSystem') !== 'false',
     maxNotifications: parseInt(localStorage.getItem("maxNotifications"), 10) || 15,
-    toastDuration: parseInt(localStorage.getItem("toastDuration"), 10) || 4000,
+    toastDuration: parseInt(localStorage.getItem("toastDuration"), 10) || 5000,
     renderResume: parseInt(localStorage.getItem("renderResume"), 10) || 10,
     enableRenderResume: localStorage.getItem('enableRenderResume') !== 'false',
     toastGroupThreshold: parseInt(localStorage.getItem("toastGroupThreshold"), 10) || 5,
-    enableCounterSystem: localStorage.getItem('enableCounterSystem') !== 'false',
+    enableCounterSystem: localStorage.getItem('enableCounterSystem') === 'true',
 
     enableHomeSectionsMaster: (localStorage.getItem('enableHomeSectionsMaster') || 'true') !== 'false',
     enablePauseFeaturesMaster: (localStorage.getItem('enablePauseFeaturesMaster') || 'true') !== 'false',
@@ -951,7 +1011,6 @@ export function getConfig() {
     enableSerrArrIntegrationModule: (localStorage.getItem('enableSerrArrIntegrationModule') || 'true') !== 'false',
     enableCastModule: (localStorage.getItem('enableCastModule') || 'true') !== 'false',
     allowSharedCastViewerForUsers: localStorage.getItem('allowSharedCastViewerForUsers') === 'true',
-    detailsModalTmdbReviewsEnabled: (localStorage.getItem('detailsModalTmdbReviewsEnabled') || 'true') !== 'false',
     detailsModalLocalCommentsEnabled: localStorage.getItem('detailsModalLocalCommentsEnabled') === 'true',
     enableCustomSplashScreen: (localStorage.getItem('enableCustomSplashScreen') || 'true') !== 'false',
     customSplashTitle: (localStorage.getItem('customSplashTitle') || '').trim(),
@@ -1102,7 +1161,7 @@ export function getConfig() {
     studioHubsAutoAddFromWatchlistCopy: localStorage.getItem('studioHubsAutoAddFromWatchlistCopy') === 'true',
     placeGenreHubsAbovePersonalRecs: localStorage.getItem('placeGenreHubsAbovePersonalRecs') === 'true' ? true : false,
     studioHubsHoverVideo: localStorage.getItem('studioHubsHoverVideo') !== 'false',
-    studioMiniTrailerPopover: (localStorage.getItem("studioMiniTrailerPopover") || "false") === "true",
+    studioMiniTrailerPopover: (localStorage.getItem("studioMiniTrailerPopover") || "true") === "true",
     studioHubsMinRating: parseFloat(localStorage.getItem('studioHubsMinRating')) || 6.5,
     studioHubsCardCount: parseInt(localStorage.getItem('studioHubsCardCount'), 10) || 10,
     personalRecsCardCount: parseInt(localStorage.getItem('personalRecsCardCount'), 10) || 9,
@@ -1428,8 +1487,14 @@ export function getConfig() {
     "jms:settingsTargetProfile",
     "settings.allowedTabs.v1",
     "lyricsMode",
-    "lyricsOverwrite"
+    "lyricsOverwrite",
+    DEFAULTS_REV_KEY
   ]);
+
+  // Deliberately after registerManagedStorageKeys and not at module scope: storagePreload.js
+  // deletes any *registered* key missing from the server snapshot and only persists keys that are
+  // already registered, so a write made before this line would be dropped on the floor.
+  if (applyShippedDefaultsOnce(resolvedConfig)) return getConfig();
 
   return resolvedConfig;
 }
@@ -1519,7 +1584,6 @@ export function getDetailsModalRuntimeConfig(source = null) {
 
   return {
     enabled,
-    showTmdbReviews: enabled && cfg.detailsModalTmdbReviewsEnabled !== false,
     showLocalComments: enabled && cfg.detailsModalLocalCommentsEnabled === true
   };
 }

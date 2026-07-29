@@ -2,11 +2,6 @@ import { createCheckbox, createImageTypeSelect, bindCheckboxKontrol, bindTersChe
 import { getDefaultLanguage, getStoredLanguagePreference } from '../../language/index.js';
 import { fetchJmsPluginConfig, sanitizeTmdbApiKey } from "../jmsPluginConfig.js";
 
-const LS_TMDB_LANG  = 'jms_tmdb_reviews_lang';
-
-function lsGet(k, def = '') { try { return localStorage.getItem(k) ?? def; } catch { return def; } }
-function lsSet(k, v) { try { (v ? localStorage.setItem(k, v) : localStorage.removeItem(k)); } catch {} }
-
 function createTextInputSimple(id, labelText, value, placeholder = '') {
   const wrap = document.createElement('div');
   wrap.className = 'fsetting-item';
@@ -20,25 +15,6 @@ function createTextInputSimple(id, labelText, value, placeholder = '') {
   input.placeholder = placeholder || '';
   wrap.append(label, input);
   return { wrap, input };
-}
-
-function createSelectSimple(id, labelText, value, options) {
-  const wrap = document.createElement('div');
-  wrap.className = 'fsetting-item';
-  const label = document.createElement('label');
-  label.htmlFor = id; label.textContent = labelText;
-  const sel = document.createElement('select');
-  sel.id = id;
-  sel.name = id;
-  for (const opt of options) {
-    const o = document.createElement('option');
-    o.value = opt.value;
-    o.textContent = opt.label;
-    sel.appendChild(o);
-  }
-  sel.value = value || options?.[0]?.value || '';
-  wrap.append(label, sel);
-  return { wrap, sel };
 }
 
 export function createSliderPanel(config, labels) {
@@ -123,25 +99,9 @@ export function createSliderPanel(config, labels) {
     return w;
   })();
 
-  const tmdbLangSelect = createSelectSimple(
-    'tmdbReviewsLang',
-    labels.tmdbReviewsLang || 'Yorum Dili',
-    lsGet(LS_TMDB_LANG, 'tr-TR'),
-    [
-      { value: 'tr-TR', label: '🇹🇷 Türkçe (tr-TR)' },
-      { value: 'en-US', label: '🇺🇸 English (en-US)' },
-      { value: 'es-ES', label: '🇪🇸 Español (es-ES)' },
-      { value: 'de-DE', label: '🇩🇪 Deutsch (de-DE)' },
-      { value: 'fr-FR', label: '🇫🇷 Français (fr-FR)' },
-      { value: 'ru-RU', label: '🇷🇺 Русский (ru-RU)' },
-      { value: 'it-IT', label: '🇮🇹 Italiano (it-IT)' },
-      { value: 'ja-JP', label: '🇯🇵 日本語 (ja-JP)' },
-      { value: 'pt-BR', label: '🇧🇷 Português (pt-BR)' },
-      { value: '', label: labels.noParam || '🌐 Otomatik (parametresiz)' },
-    ]
-  );
-  tmdbLangSelect.sel.addEventListener('change', () => lsSet(LS_TMDB_LANG, tmdbLangSelect.sel.value));
-  tmdbWrap.append(tmdbTitle, tmdbKeyField, tmdbLangSelect.wrap);
+  // The review-language select lived here; the details modal no longer renders TMDb reviews, and
+  // the key is still used for trailer lookups, so only the language control goes.
+  tmdbWrap.append(tmdbTitle, tmdbKeyField);
 
   (async () => {
     try {

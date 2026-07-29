@@ -1238,7 +1238,7 @@ function createMainSettingsPanel(labels, panels) {
     const volumePercentControl = createNumberInput(
         'previewTrailerVolumePercent',
         labels.previewTrailerVolumePercent || 'Fragman başlangıç ses seviyesi (%)',
-        config.previewTrailerVolumePercent ?? 50,
+        config.previewTrailerVolumePercent ?? 40,
         0,
         100,
         1

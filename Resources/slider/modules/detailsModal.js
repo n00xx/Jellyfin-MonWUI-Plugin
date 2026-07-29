@@ -7,7 +7,7 @@ import { formatOfficialRatingLabel, getYoutubeEmbedUrl, applyPreviewTrailerAudio
 import { getGlobalTmdbApiKey, sanitizeTmdbApiKey } from "./jmsPluginConfig.js";
 import { ensureStudioHubLogoFromTmdb, ensureStudioHubManualEntry, JMS_STUDIO_HUB_MANUAL_ENTRY_ADDED_EVENT } from "./studioHubsShared.js";
 import { showNotification } from "./player/ui/notification.js";
-import { WATCHLIST_MODAL_ID, getWatchlistButtonText, getWatchlistTabKey, getWatchlistToast, isWatchlistSharingEnabled, openWatchlistModal, openWatchlistShareOverlayForItem } from "./watchlist.js";
+import { WATCHLIST_MODAL_ID, getWatchlistTabKey, isWatchlistSharingEnabled, openWatchlistModal, openWatchlistShareOverlayForItem } from "./watchlist.js";
 import { appendSerrRequestButton } from "./seerr/ui.js";
 import {
   ensureSerrMissingVisualStyles,
@@ -312,6 +312,41 @@ function softStopHeroMedia(root) {
   } catch {}
 }
 
+// Hovering an episode opens a preview with its own audio, so the hero trailer has to get out of
+// the way. Distinct from softStopHeroMedia above, which also zeroes volume: that is right for
+// teardown but would hand the hero back silent. Here the pre-hover state is stashed on the element
+// and only restored if it was actually playing.
+function pauseHeroMediaForPreview(root) {
+  try {
+    const v = root?.querySelector?.(".jmsdm-hero video[data-jms-hero-preview='1']");
+    if (v) {
+      v.__jmsResumeAfterPreview = !v.paused;
+      try { v.pause(); } catch {}
+    }
+    const f = root?.querySelector?.(".jmsdm-hero iframe[data-jms-hero-preview='1']");
+    if (f?.__ytPlayer) {
+      // 1 === YT.PlayerState.PLAYING, read numerically so this never depends on the YT API object.
+      try { f.__jmsResumeAfterPreview = f.__ytPlayer.getPlayerState?.() === 1; } catch { f.__jmsResumeAfterPreview = false; }
+      try { f.__ytPlayer.pauseVideo?.(); } catch {}
+    }
+  } catch {}
+}
+
+function resumeHeroMediaAfterPreview(root) {
+  try {
+    const v = root?.querySelector?.(".jmsdm-hero video[data-jms-hero-preview='1']");
+    if (v?.__jmsResumeAfterPreview) {
+      v.__jmsResumeAfterPreview = false;
+      try { v.play()?.catch?.(() => {}); } catch {}
+    }
+    const f = root?.querySelector?.(".jmsdm-hero iframe[data-jms-hero-preview='1']");
+    if (f?.__jmsResumeAfterPreview) {
+      f.__jmsResumeAfterPreview = false;
+      try { f.__ytPlayer?.playVideo?.(); } catch {}
+    }
+  } catch {}
+}
+
 function ensureYouTubeIframeApi() {
   if (_ytApiPromise) return _ytApiPromise;
 
@@ -593,7 +628,6 @@ function ensureLocalCommentStyles() {
   document.head.appendChild(style);
 }
 
-const LS_TMDB_LANG = 'jms_tmdb_reviews_lang';
 const LOCAL_COMMENTS_ENDPOINT = "/Plugins/JMSFusion/comments";
 const LOCAL_COMMENT_MAX_LENGTH = 2000;
 const LOCAL_COMMENT_STYLE_ID = "jms-details-modal-comments-style";
@@ -1046,11 +1080,6 @@ function wireOverviewToggle(root) {
   });
 }
 
-function getTmdbLangPref() {
-  try { return (localStorage.getItem(LS_TMDB_LANG) || '').trim(); } catch {}
-  return '';
-}
-
 function getProviderId(item, key) {
   const p = item?.ProviderIds || item?.Providerids || item?.providerIds || null;
   if (!p) return '';
@@ -1105,485 +1134,11 @@ async function getTmdbIdForItem(item, { signal } = {}) {
   return { tmdbId: null, kind: null };
 }
 
-async function fetchTmdbReviews(kind, tmdbId, { signal, language = null, page = 1 } = {}) {
-  if (!kind || !tmdbId) return { results: [], page: 1, total_pages: 1 };
-  const lang = (language != null ? language : getTmdbLangPref());
-
-  const qp = new URLSearchParams();
-  if (lang) qp.set("language", lang);
-  qp.set("page", String(page || 1));
-
-  const path = `/${kind}/${encodeURIComponent(tmdbId)}/reviews?${qp.toString()}`;
-  const data = await tmdbFetchJson(path, { signal });
-  return {
-    results: Array.isArray(data?.results) ? data.results : [],
-    page: Number(data?.page || page || 1),
-    total_pages: Number(data?.total_pages || 1),
-    total_results: Number(data?.total_results || 0),
-  };
-}
-
 function escapeHtml(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
-}
-
-function markdownToHtmlLite(inputMd) {
-  const src = String(inputMd ?? "");
-  if (!src) return "";
-
-  let s = escapeHtml(src).replace(/\r\n/g, "\n");
-
-  const codeBlocks = [];
-  s = s.replace(/```([\s\S]*?)```/g, (_, code) => {
-    codeBlocks.push(code);
-    return `@@JMS_CODEBLOCK_${codeBlocks.length - 1}@@`;
-  });
-
-  const inlineCodes = [];
-  s = s.replace(/`([^`]+)`/g, (_, code) => {
-    inlineCodes.push(code);
-    return `@@JMS_CODE_${inlineCodes.length - 1}@@`;
-  });
-
-  s = s.replace(/\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
-  s = s.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
-  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
-  s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>");
-  s = s.replace(/@@JMS_CODE_(\d+)@@/g, (m, i) => {
-    const idx = Number(i);
-    return `<code>${inlineCodes[idx] ?? ""}</code>`;
-  });
-
-  s = s.replace(/@@JMS_CODEBLOCK_(\d+)@@/g, (m, i) => {
-    const idx = Number(i);
-    return `<pre><code>${codeBlocks[idx] ?? ""}</code></pre>`;
-  });
-
-  const lines = s.split("\n");
-  const out = [];
-  let buf = [];
-  let mode = null;
-
-  const flush = () => {
-    if (!buf.length) return;
-    const raw = buf.join("\n").trimEnd();
-    const html = raw.replace(/\n/g, "<br>");
-    if (mode === "q") out.push(`<blockquote><p>${html}</p></blockquote>`);
-    else out.push(`<p>${html}</p>`);
-    buf = [];
-    mode = null;
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const ln = lines[i];
-
-    if (!ln.trim()) {
-      flush();
-      continue;
-    }
-
-    const isQuote = ln.startsWith("&gt;") || ln.startsWith("&gt; ");
-    if (isQuote) {
-      const content = ln.replace(/^&gt;\s?/, "");
-      if (mode && mode !== "q") flush();
-      mode = "q";
-      buf.push(content);
-    } else {
-      if (mode && mode !== "p") flush();
-      mode = "p";
-      buf.push(ln);
-    }
-  }
-  flush();
-
-  return out.join("");
-}
-
-function looksLikeHtmlish(input) {
-  const s = String(input ?? "");
-  return /<\/?(?:em|i|strong|b|u|s|p|br|div|span|ul|ol|li|blockquote|code|pre|a|spoiler)\b/i.test(s);
-}
-
-function sanitizeLimitedHtml(inputHtml) {
-  const html = String(inputHtml ?? "");
-  if (!html) return "";
-
-  const ALLOWED_TAGS = new Set([
-    "B","I","EM","STRONG","U","S",
-    "P","BR","DIV","SPAN",
-    "UL","OL","LI",
-    "BLOCKQUOTE",
-    "CODE","PRE",
-    "A",
-    "SPOILER",
-  ]);
-
-  const ALLOWED_ATTRS = {
-    A: new Set(["href", "title", "target", "rel"]),
-  };
-
-  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
-  const root = doc.body.firstElementChild;
-
-  const walk = (node) => {
-    if (!node) return;
-    if (node.nodeType === Node.TEXT_NODE) return;
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      node.remove();
-      return;
-    }
-    const tag = node.tagName.toUpperCase();
-
-    if (tag === "SPOILER") {
-      const span = doc.createElement("span");
-      span.className = "jmsdm-spoiler";
-      span.setAttribute("data-spoiler", "1");
-
-      const spoilerLabel =
-        (config?.languageLabels?.spoilerClick || config?.languageLabels?.spoiler || "").toString().trim()
-        || "Spoiler (tap to reveal)";
-      span.setAttribute("data-spoiler-label", spoilerLabel);
-      span.setAttribute("role", "button");
-      span.setAttribute("tabindex", "0");
-      span.setAttribute("aria-label", spoilerLabel);
-
-      while (node.firstChild) span.appendChild(node.firstChild);
-      node.replaceWith(span);
-      Array.from(span.childNodes).forEach(walk);
-      return;
-    }
-
-    if (!ALLOWED_TAGS.has(tag)) {
-      const parent = node.parentNode;
-      if (!parent) return;
-      while (node.firstChild) parent.insertBefore(node.firstChild, node);
-      node.remove();
-      return;
-    }
-
-    const allowed = ALLOWED_ATTRS[tag] || new Set();
-    for (const attr of node.getAttributeNames()) {
-      const a = attr.toLowerCase();
-
-      if (a.startsWith("on") || a === "style") {
-        node.removeAttribute(attr);
-        continue;
-      }
-
-      if (!allowed.has(attr)) {
-        node.removeAttribute(attr);
-      }
-    }
-
-    if (tag === "A") {
-      const href = (node.getAttribute("href") || "").trim();
-      const ok = /^(https?:\/\/|mailto:|#|\/)/i.test(href);
-      if (!ok) {
-        node.removeAttribute("href");
-      } else {
-        const isExternal = /^https?:\/\//i.test(href);
-        if (isExternal) {
-          node.setAttribute("target", "_blank");
-          node.setAttribute("rel", "noopener noreferrer");
-        } else {
-          node.removeAttribute("target");
-          node.removeAttribute("rel");
-        }
-      }
-    }
-
-  Array.from(node.childNodes).forEach(walk);
-  };
-
-  Array.from(root.childNodes).forEach(walk);
-
-  return root.innerHTML;
-}
-
-function toPlainTextFromHtml(html) {
-  try {
-    const d = document.createElement("div");
-    d.innerHTML = String(html ?? "");
-    return (d.textContent || "").trim();
-  } catch {
-    return String(html ?? "").trim();
-  }
-}
-
-function renderTmdbReviewsHtml(reviews = [], { showMore = false } = {}) {
-  if (!reviews.length) {
-    return `<div style="color:rgba(255,255,255,.7);font-size:13px;line-height:1.5;">${config.languageLabels.noReviews || 'Yorum bulunamadı.'}</div>`;
-  }
-  return `
-    <div class="jmsdm-reviews">
-      ${reviews.map(r => {
-        const author = escapeHtml(r?.author || r?.author_details?.username || '—');
-        const date = escapeHtml((r?.created_at || r?.updated_at || '').toString().slice(0, 10));
-        const raw = String(r?.content || "");
-        const baseHtml = looksLikeHtmlish(raw) ? raw : markdownToHtmlLite(raw);
-        const fullHtml = sanitizeLimitedHtml(baseHtml);
-        const plain = toPlainTextFromHtml(fullHtml);
-        const isLong = plain.length > 220;
-        const shortHtml = fullHtml;
-        const id = escapeHtml(r?.id || Math.random().toString(36).slice(2));
-
-        const ratingRaw = r?.author_details?.rating;
-        const ratingNum =
-          (typeof ratingRaw === "number" && Number.isFinite(ratingRaw)) ? ratingRaw : null;
-        const ratingPct =
-          (ratingNum != null) ? Math.round(Math.max(0, Math.min(10, ratingNum)) * 10) : null;
-        const ratingHtml =
-          (ratingPct != null)
-            ? `<span class="jmsdm-review-rating" title="${ratingNum.toFixed(1)}/10"
-                 style="font-size:12px;color:rgba(255,255,255,.85);font-weight:600;">
-                 ${ratingPct}%</span>`
-            : ``;
-
-        _reviewHtmlStore.set(String(id), { fullHtml, shortHtml, plain });
-
-        return `
-          <div class="jmsdm-review" data-reviewid="${id}">
-            <div class="jmsdm-review-head">
-              <div class="jmsdm-review-author">${author}</div>
-              <div style="display:flex;gap:10px;align-items:center;">
-                ${ratingHtml}
-                <div class="jmsdm-review-date">${date}</div>
-              </div>
-            </div>
-            <div class="jmsdm-review-body is-collapsed" data-expanded="0">${shortHtml}</div>
-
-            ${isLong ? `<button class="jmsdm-review-more">${config.languageLabels.more || 'Devamı'}</button>` : ''}
-          </div>
-        `;
-      }).join('')}
-    </div>
-    ${showMore ? `
-      <div style="margin-top:10px;display:flex;justify-content:center;">
-        <button class="jmsdm-btn jmsdm-reviews-more">${config.languageLabels.loadMore || "Daha fazla yorum"}</button>
-      </div>
-    ` : ``}
-  `;
-}
-
-async function loadTmdbReviewsInto(root, displayItem, { signal } = {}) {
-    const host = root?.querySelector?.('.jmsdm-tmdb-reviews');
-    if (!host) return;
-
-    host.innerHTML = `
-        <button class="jmsdm-reviews-toggle" data-reviews-expanded="false">
-            <span>
-                ${config.languageLabels.reviewsTitle || 'Yorumlar'}
-                <span class="jmsdm-tmdb-logo">(TMDb)</span>
-                <span class="jmsdm-reviews-count">...</span>
-            </span>
-            <span class="toggle-icon">▼</span>
-        </button>
-        <div class="jmsdm-reviews-container">
-            <div class="jmsdm-reviews-loading">${config.languageLabels.loading || 'Yükleniyor...'}</div>
-        </div>
-    `;
-
-    const toggleBtn = host.querySelector('.jmsdm-reviews-toggle');
-    const container = host.querySelector('.jmsdm-reviews-container');
-    const countSpan = host.querySelector('.jmsdm-reviews-count');
-
-    function wireSpoilers(scopeEl) {
-        if (!scopeEl || scopeEl.__spoilerWired) return;
-        scopeEl.__spoilerWired = true;
-        scopeEl.addEventListener("click", (e) => {
-            const el = e.target?.closest?.(".jmsdm-spoiler");
-            if (!el || !scopeEl.contains(el)) return;
-            e.preventDefault();
-            e.stopPropagation();
-            el.classList.toggle("revealed");
-        });
-    }
-
-    const toggleReviews = () => {
-        const expanded = toggleBtn.getAttribute('data-reviews-expanded') === 'true';
-        const newState = !expanded;
-
-        toggleBtn.setAttribute('data-reviews-expanded', newState);
-        toggleBtn.classList.toggle('expanded', newState);
-        container.classList.toggle('expanded', newState);
-
-        if (newState && !container.hasAttribute('data-loaded')) {
-            loadReviewsContent();
-        }
-    };
-
-    toggleBtn.addEventListener('click', toggleReviews);
-
-    const loadReviewsContent = async () => {
-        try {
-            const key = await getTmdbApiKey();
-            if (!key) {
-                container.innerHTML = `<div style="color:rgba(255,255,255,.7);font-size:13px;line-height:1.5;">${config.languageLabels.tmdbKeyMissing || 'TMDb API key girilmemiş. Ayarlardan ekleyebilirsin.'}</div>`;
-                return;
-            }
-
-            const { tmdbId, kind } = await getTmdbIdForItem(displayItem, { signal });
-            if (!_open || signal?.aborted) return;
-
-            if (!tmdbId || !kind) {
-                container.innerHTML = `<div style="color:rgba(255,255,255,.7);font-size:13px;line-height:1.5;">${config.languageLabels.tmdbIdMissing || 'TMDb ID bulunamadı.'}</div>`;
-                container.setAttribute('data-loaded', 'true');
-                countSpan.textContent = '0';
-                return;
-            }
-
-            const oldLang = getTmdbLangPref();
-            let page = 1;
-            let pack = await fetchTmdbReviews(kind, tmdbId, { signal, page });
-            let all = pack.results || [];
-            const INITIAL_TAKE = 3;
-            const STEP_TAKE = 3;
-            let shown = Math.min(INITIAL_TAKE, all.length);
-
-            if ((!all || !all.length) && oldLang && oldLang !== 'en-US') {
-                try {
-                    localStorage.setItem(LS_TMDB_LANG, 'en-US');
-                    page = 1;
-                    pack = await fetchTmdbReviews(kind, tmdbId, { signal, page, language: "en-US" });
-                    all = pack.results || [];
-                } finally {
-                    try { localStorage.setItem(LS_TMDB_LANG, oldLang); } catch {}
-                }
-            }
-
-            const totalCount = (pack?.total_results && pack.total_results > 0) ? pack.total_results : all.length;
-            countSpan.textContent = totalCount.toString();
-
-            if (!all.length) {
-                container.innerHTML = `<div style="color:rgba(255,255,255,.7);font-size:13px;line-height:1.5;">${config.languageLabels.noReviews || 'Henüz yorum yok.'}</div>`;
-                container.setAttribute('data-loaded', 'true');
-                return;
-            }
-
-            const canMore = () => {
-                const hasMoreInLoaded = shown < (all?.length || 0);
-                const hasMorePages = (pack.total_pages || 1) > (pack.page || 1);
-                return hasMoreInLoaded || hasMorePages;
-            };
-
-            const render = () => {
-                const slice = (all || []).slice(0, shown);
-                container.innerHTML = renderTmdbReviewsHtml(slice, { showMore: canMore() });
-                wireExpand();
-                wireMore();
-                container.setAttribute('data-loaded', 'true');
-            };
-
-            const wireExpand = () => {
-              container.querySelectorAll('.jmsdm-review-more').forEach(btn => {
-                if (btn.__wired) return;
-                btn.__wired = true;
-
-                btn.addEventListener('click', (e) => {
-                  e.preventDefault();
-
-                  const card = btn.closest('.jmsdm-review');
-                  const body = card?.querySelector('.jmsdm-review-body');
-                  if (!card || !body) return;
-
-                  const id = String(card.getAttribute("data-reviewid") || "");
-                  const st = _reviewHtmlStore.get(id);
-                  if (!st) return;
-
-                  const expanded = body.getAttribute('data-expanded') === '1';
-
-                  if (!expanded) {
-                    body.innerHTML = st.fullHtml || "";
-                    wireSpoilers(body);
-                    body.setAttribute('data-expanded', '1');
-                    body.classList.remove("is-collapsed");
-                    btn.textContent = config.languageLabels.less || 'Kısalt';
-                  } else {
-                    body.innerHTML = st.shortHtml || "";
-                    body.setAttribute('data-expanded', '0');
-                    body.classList.add("is-collapsed");
-                    btn.textContent = config.languageLabels.more || 'Devamı';
-                  }
-                });
-              });
-            };
-
-            const wireMore = () => {
-                const moreBtn = container.querySelector('.jmsdm-reviews-more');
-                if (!moreBtn || moreBtn.__wired) return;
-                moreBtn.__wired = true;
-
-                moreBtn.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    if (signal?.aborted) return;
-                    try {
-                        moreBtn.disabled = true;
-                        moreBtn.textContent = config.languageLabels.loading || "Yükleniyor…";
-                        const want = shown + STEP_TAKE;
-                        if (want <= (all?.length || 0)) {
-                            shown = want;
-                            render();
-                            return;
-                        }
-
-                        shown = (all?.length || 0);
-
-                        const hasNextPage = (pack.total_pages || 1) > (pack.page || 1);
-                        if (hasNextPage) {
-                            page = (pack.page || page) + 1;
-                            const nextPack = await fetchTmdbReviews(kind, tmdbId, { signal, page });
-                            pack = nextPack;
-                            const next = nextPack.results || [];
-                            all = all.concat(next);
-                            shown = Math.min(shown + STEP_TAKE, all.length);
-                        }
-
-                        render();
-                    } catch (err) {
-                        if (!signal?.aborted) {
-                            console.warn("load more reviews error:", err);
-                            window.showMessage?.(config.languageLabels.reviewsFetchFailed || "Yorumlar alınamadı.", "error");
-                        }
-                    } finally {
-                        const b = container.querySelector('.jmsdm-reviews-more');
-                        if (b) {
-                            b.disabled = false;
-                            b.textContent = config.languageLabels.loadMore || "Daha fazla yorum";
-                        }
-                    }
-                });
-            };
-
-            render();
-        } catch (e) {
-            if (!signal?.aborted) {
-                console.warn('TMDb reviews error:', e);
-                container.innerHTML = `<div style="color:rgba(255,255,255,.7);font-size:13px;line-height:1.5;">${config.languageLabels.reviewsFetchFailed || 'Yorumlar alınamadı.'}</div>`;
-                container.setAttribute('data-loaded', 'true');
-                countSpan.textContent = '0';
-            }
-        }
-    };
-
-    try {
-        const key = await getTmdbApiKey();
-        if (key) {
-            const { tmdbId, kind } = await getTmdbIdForItem(displayItem, { signal: null });
-            if (tmdbId && kind) {
-                const pack = await fetchTmdbReviews(kind, tmdbId, { signal: null, page: 1 });
-                const count =
-                (pack?.total_results && pack.total_results > 0)
-                  ? pack.total_results
-                  : (pack.results?.length || 0);
-                countSpan.textContent = count.toString();
-            }
-        }
-    } catch (e) {
-        console.debug('Review count fetch error:', e);
-    }
 }
 
 function stopHeroMedia(root) {
@@ -2022,6 +1577,49 @@ function getResumeTicksFromItem(it) {
     return Number.isFinite(t) ? t : Number(t || 0);
   } catch {
     return 0;
+  }
+}
+
+/**
+ * The heart button on this panel calls updateFavoriteStatus(), so it toggles Jellyfin favourites,
+ * not the watchlist. It used to borrow getWatchlistButtonText() and therefore read "Add to my
+ * list", naming a different feature than the one it operates. Own keys, so renaming this never
+ * touches the real watchlist UI.
+ */
+function getFavoriteButtonText(isFavorite) {
+  return isFavorite
+    ? label("detailsFavoriteRemove", "Quitar de favoritos")
+    : label("detailsFavoriteAdd", "Añadir a favoritos");
+}
+
+/**
+ * Watched / part-watched state for one episode row.
+ *
+ * `UserData` already rides along on the episode list (fetchEpisodesFor requests it), so this is
+ * pure arithmetic — no extra request. PlayedPercentage is preferred where the server sends it;
+ * ticks are the fallback, since it is absent on some item shapes.
+ */
+function getEpisodeWatchState(ep) {
+  try {
+    const played = ep?.UserData?.Played === true;
+    if (played) return { played: true, percent: 100 };
+
+    const runtimeTicks = Number(ep?.RunTimeTicks || 0);
+    const positionTicks = getResumeTicksFromItem(ep);
+    const reported = Number(ep?.UserData?.PlayedPercentage);
+
+    let percent = Number.isFinite(reported)
+      ? reported
+      : (runtimeTicks > 0 ? (positionTicks / runtimeTicks) * 100 : 0);
+
+    if (!Number.isFinite(percent) || percent <= 0) return { played: false, percent: 0 };
+    if (percent >= 100) return { played: true, percent: 100 };
+    if (!(positionTicks > 0)) return { played: false, percent: 0 };
+
+    // A sliver of progress is invisible at 4px tall, so floor the bar at something you can see.
+    return { played: false, percent: Math.max(2, Math.min(99, percent)) };
+  } catch {
+    return { played: false, percent: 0 };
   }
 }
 
@@ -3720,15 +3318,6 @@ export async function openDetailsModal({ itemId, item: preloadedItem = null, det
     !isVirtualTrailer &&
     detailsRuntime.showLocalComments &&
     !!safeText(baseItem?.Id || displayItem?.Id, "");
-  const supportsTmdbReviews =
-    !isVirtualTrailer &&
-    detailsRuntime.showTmdbReviews &&
-    (
-      baseItem.Type === "Movie" ||
-      baseItem.Type === "Series" ||
-      baseItem.Type === "Season" ||
-      baseItem.Type === "Episode"
-    );
   const isFavInitial = !!(baseItem?.UserData?.IsFavorite || displayItem?.UserData?.IsFavorite);
 
   let isFavorite = isFavInitial;
@@ -3914,8 +3503,12 @@ wireMiniCardDelegation();
           if (isMissing && ep?.Id) _serrMissingPreviewItems.set(String(ep.Id), ep);
           const img = getSerrMissingSyntheticPosterUrl(ep, "w500") || getEpisodeImageUrlMini(ep, { maxWidth: 260 });
           const epOver = safeText(ep.Overview, "");
+          // Seerr placeholders stand in for episodes that are not on the server, so they carry no
+          // UserData and can be neither watched nor part-watched.
+          const watch = isMissing ? { played: false, percent: 0 } : getEpisodeWatchState(ep);
+          const watchedLabel = label("episodeWatched", "Visto");
           return `
-          <div class="jmsdm-ep${isMissing ? " monwui-serr-missing-listitem" : ""}${isRequested ? " monwui-serr-requested" : ""}" data-epid="${escapeHtml(ep.Id)}" ${isMissing ? "data-monwui-serr-missing-preview=\"1\"" : ""} ${isRequested ? "data-serr-requested=\"1\"" : ""}>
+          <div class="jmsdm-ep${isMissing ? " monwui-serr-missing-listitem" : ""}${isRequested ? " monwui-serr-requested" : ""}${watch.played ? " is-watched" : ""}" data-epid="${escapeHtml(ep.Id)}" ${isMissing ? "data-monwui-serr-missing-preview=\"1\"" : ""} ${isRequested ? "data-serr-requested=\"1\"" : ""}>
             <div class="jmsdm-ep-thumb${isMissing ? " monwui-serr-missing-thumb" : ""}">
               ${isMissing ? `<span class="monwui-serr-missing-badge">${escapeHtml(config.languageLabels.serrMissingBadge || "Eksik")}</span>` : ""}
               ${
@@ -3923,6 +3516,12 @@ wireMiniCardDelegation();
                   ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(epName)}" loading="lazy" decoding="async">`
                   : `<div class="jmsdm-skeleton" style="width:100%;height:100%;"></div>`
               }
+              ${watch.played
+                ? `<span class="jmsdm-ep-watched" role="img" aria-label="${escapeHtml(watchedLabel)}" title="${escapeHtml(watchedLabel)}">${icon("M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z")}</span>`
+                : ""}
+              ${watch.percent > 0 && !watch.played
+                ? `<div class="jmsdm-ep-progress" aria-hidden="true"><i style="width:${watch.percent.toFixed(1)}%"></i></div>`
+                : ""}
             </div>
 
             <div class="jmsdm-ep-num">${isMissing ? `<span class="material-icons ${isRequested ? "check" : "playlist_add"}" aria-hidden="true"></span><span>${escapeHtml(String(num))}</span>` : escapeHtml(String(num))}</div>
@@ -4177,7 +3776,7 @@ wireMiniCardDelegation();
       </button>
       <button class="jmsdm-btn jmsdm-fav" aria-pressed="${isFavorite ? "true" : "false"}">
         ${icon(isFavorite ? "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" : "M12.1 18.55l-.1.1-.11-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z")}
-        ${getWatchlistButtonText(baseItem, isFavorite)}
+        ${getFavoriteButtonText(isFavorite)}
       </button>
       ${isWatchlistSharingEnabled() ? `<button type="button" class="jmsdm-btn jmsdm-share">
         ${icon("M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 1 0 15 5c0 .24.04.47.09.69L8.04 9.81A3 3 0 1 0 8.04 14.2l7.12 4.17c-.04.2-.06.41-.06.63A2.9 2.9 0 1 0 18 16.08z")} ${label("watchlistShareAction", "Paylaş")}
@@ -4230,7 +3829,6 @@ wireMiniCardDelegation();
               </div>
 
               ${supportsLocalComments ? `<div class="jmsdm-local-comments" style="margin-top:18px;"></div>` : ""}
-              ${supportsTmdbReviews ? `<div class="jmsdm-tmdb-reviews" style="margin-top:18px;"></div>` : ""}
             </div>
 
             <div class="jmsdm-right">
@@ -4276,9 +3874,6 @@ wireMiniCardDelegation();
   if (supportsLocalComments) {
     loadLocalCommentsInto(root, baseItem, { signal: _abort.signal });
   }
-  if (supportsTmdbReviews) {
-    loadTmdbReviewsInto(root, displayItem, { signal: _abort.signal });
-  }
 
   const playBtn = root.querySelector(".jmsdm-play");
   const openBtn = root.querySelector(".jmsdm-openpage");
@@ -4309,7 +3904,7 @@ wireMiniCardDelegation();
     favBtn.setAttribute("aria-pressed", isFavorite ? "true" : "false");
     favBtn.innerHTML = `
       ${icon(isFavorite ? "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" : "M12.1 18.55l-.1.1-.11-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z")}
-      ${getWatchlistButtonText(baseItem, isFavorite)}
+      ${getFavoriteButtonText(isFavorite)}
     `;
     favBtn.classList.toggle("active", !!isFavorite);
   };
@@ -4526,7 +4121,12 @@ wireMiniCardDelegation();
             if (displayItem?.UserData) displayItem.UserData.IsFavorite = isFavorite;
           } catch {}
           updateFavUi();
-          window.showMessage?.(getWatchlistToast(baseItem, isFavorite), "success");
+          window.showMessage?.(
+            isFavorite
+              ? label("detailsFavoriteAdded", "Añadido a tus favoritos")
+              : label("detailsFavoriteRemoved", "Quitado de tus favoritos"),
+            "success"
+          );
         } else {
           window.showMessage?.(config.languageLabels.favoriteError || "Liste işlemi başarısız", "error");
         }
@@ -4577,11 +4177,14 @@ wireMiniCardDelegation();
       }
       try {
         const started = await playNow(epId, await resolveEpisodeTrackSelection(epId));
-        if (!started) return;
+        // The hover preview paused the hero on the way in. Playback taking over makes that moot,
+        // but if it never started the modal stays open and the hero has to come back.
+        if (!started) { resumeHeroMediaAfterPreview(root); return; }
         await closeDetailsModal();
         notifyDetailsModalPlay(epId);
       } catch (err) {
         console.error("Episode play error:", err);
+        resumeHeroMediaAfterPreview(root);
         window.showMessage?.(config.languageLabels.episodePlayFailed || "Bölüm oynatılamadı", "error");
       }
     });
@@ -4608,16 +4211,22 @@ wireMiniCardDelegation();
       }
     };
 
+    // forceVideo: an episode has no trailer of its own, so the preview would otherwise resolve the
+    // series' YouTube trailer and play that for every episode in the list.
+    // ignoreGlobalMode: this list is not card hover, so it opens the preview even when the global
+    // hover type is StudioHubs Mini.
+    const PREVIEW_OPTS = { bypass: true, forceVideo: true, ignoreGlobalMode: true };
+
     const openHoverPreview = (itemId, anchorEl) => {
       if (typeof window.tryOpenHoverModal === "function") {
-        try { window.tryOpenHoverModal(itemId, anchorEl, { bypass: true }); return; } catch {}
+        try { window.tryOpenHoverModal(itemId, anchorEl, { ...PREVIEW_OPTS }); return; } catch {}
       }
       if (window.__hoverTrailer && typeof window.__hoverTrailer.open === "function") {
-        try { window.__hoverTrailer.open({ itemId, anchor: anchorEl, bypass: true }); return; } catch {}
+        try { window.__hoverTrailer.open({ itemId, anchor: anchorEl, ...PREVIEW_OPTS }); return; } catch {}
       }
       try {
         window.dispatchEvent(new CustomEvent("jms:hoverTrailer:open", {
-          detail: { itemId, anchor: anchorEl, bypass: true }
+          detail: { itemId, anchor: anchorEl, ...PREVIEW_OPTS }
         }));
       } catch {}
     };
@@ -4655,6 +4264,7 @@ wireMiniCardDelegation();
         if (seq !== openSeq) return;
         if (!hoveredEl?.isConnected || !hoveredEl.matches(":hover")) return;
         root.__episodeHoverOpen = true;
+        pauseHeroMediaForPreview(root);
         openHoverPreview(target.epId, hoveredEl);
       }, EPISODE_HOVER_DELAY_MS);
     }, { passive: true });
@@ -4672,10 +4282,12 @@ wireMiniCardDelegation();
       if (root.__episodeHoverOpen) {
         root.__episodeHoverOpen = false;
         closeHoverPreview();
+        resumeHeroMediaAfterPreview(root);
       }
     }, { passive: true });
 
-    // Clicking through to playback must not leave an orphaned preview behind.
+    // Clicking through to playback must not leave an orphaned preview behind. No hero resume here:
+    // this fires on the way to playNow(), and the modal is about to be torn down.
     addEventListener(root, "click", () => {
       openSeq++;
       hoveredEl = null;

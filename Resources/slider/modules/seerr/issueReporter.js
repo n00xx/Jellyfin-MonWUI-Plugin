@@ -26,6 +26,8 @@ export const ISSUE_CHOICES = [
   { id: "subs",     type: SERR_ISSUE_TYPE.SUBTITLE, labelKey: "issueNoSubtitles",  fallback: "Los subtítulos no se ven" },
   { id: "mismatch", type: SERR_ISSUE_TYPE.OTHER,    labelKey: "issueWrongContent", fallback: "El video no coincide con la descripción" },
   { id: "language", type: SERR_ISSUE_TYPE.AUDIO,    labelKey: "issueWrongLanguage", fallback: "Está en otro idioma" },
+  // Catch-all, kept last: whatever went wrong still gets reported instead of the user giving up.
+  { id: "other",    type: SERR_ISSUE_TYPE.OTHER,    labelKey: "issueOther",         fallback: "Otro" },
 ];
 
 /**
