@@ -710,7 +710,9 @@ const USER_ONLY_KEYS = [
             studioHubsAutoAddFromWatchlistCopy: formData.get('studioHubsAutoAddFromWatchlistCopy') === 'on',
             studioHubsHoverVideo: formData.get('studioHubsHoverVideo') === 'on',
             placeGenreHubsAbovePersonalRecs: formData.get('placeGenreHubsAbovePersonalRecs') === 'on',
-            studioMiniTrailerPopover: formData.get('studioMiniTrailerPopover') === 'on',
+            // hoverTrailerPage disables and hides this whenever the hover type is not StudioHubs
+            // Mini, so a save made in HoverTrailer mode would otherwise clear it.
+            studioMiniTrailerPopover: boolFromFd('studioMiniTrailerPopover', config.studioMiniTrailerPopover === true),
             studioHubsMinRating: parseFloat(formData.get('studioHubsMinRating')) || 6.5,
             studioHubsCardCount: parseInt(formData.get('studioHubsCardCount'), 10) || 10,
             personalRecsCardCount: parseInt(formData.get('personalRecsCardCount'), 10) || 9,
@@ -755,8 +757,11 @@ const USER_ONLY_KEYS = [
             artistLimit: parseInt(formData.get('artistLimit'), 10),
 
             showDirectorWriter: formData.get('showDirectorWriter') === 'on',
-            showDirector: formData.get('showDirector') === 'on',
-            showWriter: formData.get('showWriter') === 'on',
+            // Sub-options of showDirectorWriter, which now ships off, so bindCheckboxKontrol
+            // renders both disabled and FormData drops them. Reading formData here would write
+            // false on the first save, and re-enabling the master later would show nothing.
+            showDirector: boolFromFd('showDirector', config.showDirector === true),
+            showWriter: boolFromFd('showWriter', config.showWriter === true),
             aktifSure: parseInt(formData.get('aktifSure'), 10),
             girisSure: parseInt(formData.get('girisSure'), 10),
             allowedWriters: formData.get('allowedWriters') ?
@@ -803,7 +808,9 @@ const USER_ONLY_KEYS = [
             showSloganInfo: formData.get('showSloganInfo') === 'on',
             showTitleInfo: formData.get('showTitleInfo') === 'on',
             showOriginalTitleInfo: formData.get('showOriginalTitleInfo') === 'on',
-            hideOriginalTitleIfSame: formData.get('hideOriginalTitleIfSame') === 'on',
+            // Disabled whenever "Original Title" is off (bindCheckboxKontrol on
+            // .hide-original-if-same-wrapper), so the same FormData omission applies.
+            hideOriginalTitleIfSame: boolFromFd('hideOriginalTitleIfSame', config.hideOriginalTitleIfSame !== false),
             showPlotInfo: formData.get('showPlotInfo') === 'on',
 
             showProviderInfo: formData.get('showProviderInfo') === 'on',

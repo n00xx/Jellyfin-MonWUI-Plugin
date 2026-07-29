@@ -4203,12 +4203,32 @@ wireMiniCardDelegation();
     let hoverTimer = null;
     let hoveredEl = null;
     let openSeq = 0;
+    let resumeTimer = null;
 
     const clearHoverTimer = () => {
       if (hoverTimer) {
         clearTimeout(hoverTimer);
         hoverTimer = null;
       }
+    };
+
+    // Moving from one episode card to the next fires pointerout on the first before pointerover on
+    // the second, so resuming the hero immediately would restart it for the length of the open
+    // delay on every card the pointer crosses. Deferring by that same delay means a move within the
+    // list cancels the resume before it ever fires; only leaving the list altogether resumes.
+    const cancelPendingResume = () => {
+      if (resumeTimer) {
+        clearTimeout(resumeTimer);
+        resumeTimer = null;
+      }
+    };
+
+    const scheduleHeroResume = () => {
+      cancelPendingResume();
+      resumeTimer = setTimeout(() => {
+        resumeTimer = null;
+        resumeHeroMediaAfterPreview(root);
+      }, EPISODE_HOVER_DELAY_MS);
     };
 
     // forceVideo: an episode has no trailer of its own, so the preview would otherwise resolve the
@@ -4258,6 +4278,7 @@ wireMiniCardDelegation();
 
       hoveredEl = target.el;
       clearHoverTimer();
+      cancelPendingResume();
 
       const seq = ++openSeq;
       hoverTimer = setTimeout(() => {
@@ -4282,7 +4303,7 @@ wireMiniCardDelegation();
       if (root.__episodeHoverOpen) {
         root.__episodeHoverOpen = false;
         closeHoverPreview();
-        resumeHeroMediaAfterPreview(root);
+        scheduleHeroResume();
       }
     }, { passive: true });
 
@@ -4292,6 +4313,7 @@ wireMiniCardDelegation();
       openSeq++;
       hoveredEl = null;
       clearHoverTimer();
+      cancelPendingResume();
       if (root.__episodeHoverOpen) {
         root.__episodeHoverOpen = false;
         closeHoverPreview();
