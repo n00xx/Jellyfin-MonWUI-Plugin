@@ -476,17 +476,17 @@ export function openSectionExplorer(descriptor) {
       <div class="genre-explorer" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
         <div class="ge-header sx-header">
           <div class="ge-title">${escapeHtml(title)}</div>
+          ${searchable ? `
+            <div class="sx-search" role="search">
+              <span class="sx-search-icon" aria-hidden="true">${faIconHtml("search")}</span>
+              <input class="sx-search-input" type="search" autocomplete="off" spellcheck="false"
+                     placeholder="${escapeHtml(searchPlaceholder)}"
+                     aria-label="${escapeHtml(searchPlaceholder)}">
+              <button type="button" class="sx-search-clear" hidden
+                      aria-label="${escapeHtml(l.sectionSearchClear || "Aramayı temizle")}">✕</button>
+            </div>
+          ` : ""}
           <div class="ge-actions">
-            ${searchable ? `
-              <div class="sx-search" role="search">
-                <span class="sx-search-icon" aria-hidden="true">${faIconHtml("search")}</span>
-                <input class="sx-search-input" type="search" autocomplete="off" spellcheck="false"
-                       placeholder="${escapeHtml(searchPlaceholder)}"
-                       aria-label="${escapeHtml(searchPlaceholder)}">
-                <button type="button" class="sx-search-clear" hidden
-                        aria-label="${escapeHtml(l.sectionSearchClear || "Aramayı temizle")}">✕</button>
-              </div>
-            ` : ""}
             <button type="button" class="ge-close" aria-label="${escapeHtml(l.close || "Kapat")}">✕</button>
           </div>
         </div>
