@@ -1637,23 +1637,53 @@ export async function publishAdminSnapshotIfForced() {
       return { attempted: true, forced: true, ok: false, reason: "no-token", profile: targetProfile };
     }
 
-    const pr = await fetch(`/Plugins/JMSFusion/UserSettings/Publish?ts=${Date.now()}&profile=${targetProfile}`, {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Emby-Token": token
-      },
-      body: JSON.stringify({ global: globalConfig, profile: targetProfile })
-    });
+    // Forced-global means one shared experience, so a save must reach both profile blobs —
+    // otherwise the profile the admin isn't currently viewing goes stale (desktop and mobile
+    // are separate blobs server-side) and non-admin devices on that profile never see the change.
+    const publishProfile = async (profile) => {
+      try {
+        const pr = await fetch(`/Plugins/JMSFusion/UserSettings/Publish?ts=${Date.now()}&profile=${profile}`, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Emby-Token": token
+          },
+          body: JSON.stringify({ global: globalConfig, profile })
+        });
 
-    if (!pr.ok) {
-      console.warn("[JMSFusion] Auto publish failed:", pr.status);
-      return { attempted: true, forced: true, ok: false, reason: "http-error", status: pr.status, profile: targetProfile };
+        if (!pr.ok) {
+          console.warn(`[JMSFusion] Auto publish failed (${profile}):`, pr.status);
+          return { profile, ok: false, reason: "http-error", status: pr.status };
+        }
+
+        return { profile, ok: true };
+      } catch (e) {
+        console.warn(`[JMSFusion] Auto publish error (${profile}):`, e);
+        return { profile, ok: false, reason: "exception", error: e?.message || String(e) };
+      }
+    };
+
+    const results = await Promise.all(["desktop", "mobile"].map(publishProfile));
+    const ok = results.every((r) => r.ok);
+    const failed = results.find((r) => !r.ok);
+
+    if (ok) {
+      console.log("[JMSFusion] Auto publish success (desktop + mobile).");
+      return { attempted: true, forced: true, ok: true, profile: targetProfile, profiles: results };
     }
 
-    console.log("[JMSFusion] Auto publish success.");
-    return { attempted: true, forced: true, ok: true, profile: targetProfile };
+    console.warn("[JMSFusion] Auto publish partial failure:", results);
+    return {
+      attempted: true,
+      forced: true,
+      ok: false,
+      reason: failed?.reason || "partial-failure",
+      status: failed?.status,
+      error: failed?.error,
+      profile: targetProfile,
+      profiles: results
+    };
   } catch (e) {
     console.warn("[JMSFusion] Auto publish error:", e);
     return {
