@@ -1041,6 +1041,30 @@ function wireOverviewToggle(root) {
   });
 }
 
+/**
+ * The right panel (Similar Content / Episodes / Collection) starts collapsed on phone
+ * widths only — see detailsModal.css's max-width:767px block, which is a no-op on
+ * tablets/desktop, so the "is-collapsed" class this adds has no visual effect there
+ * and needs no viewport check here.
+ */
+function wireRightPanelToggle(root) {
+  const right = root?.querySelector?.(".jmsdm-right");
+  const btn = root?.querySelector?.(".jmsdm-right-toggle");
+  if (!right || !btn) return;
+
+  const showMoreLabel = config.languageLabels.detailsModalShowMoreMobile || "Ver más contenido";
+  const showLessLabel = config.languageLabels.detailsModalShowLessMobile || "Ocultar";
+  const labelEl = btn.querySelector(".jmsdm-right-toggle-label");
+
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const collapsed = right.classList.toggle("is-collapsed");
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    if (labelEl) labelEl.textContent = collapsed ? showMoreLabel : showLessLabel;
+  });
+}
+
 function getProviderId(item, key) {
   const p = item?.ProviderIds || item?.Providerids || item?.providerIds || null;
   if (!p) return '';
@@ -3795,7 +3819,11 @@ wireMiniCardDelegation();
               ${supportsLocalComments ? `<div class="jmsdm-local-comments" style="margin-top:18px;"></div>` : ""}
             </div>
 
-            <div class="jmsdm-right">
+            <button type="button" class="jmsdm-right-toggle" aria-expanded="false">
+              <span class="jmsdm-right-toggle-label">${escapeHtml(config.languageLabels.detailsModalShowMoreMobile || "Ver más contenido")}</span>
+              <span class="jmsdm-right-toggle-icon" aria-hidden="true">▾</span>
+            </button>
+            <div class="jmsdm-right is-collapsed">
               ${renderRightPanelHtml()}
             </div>
           </div>
@@ -3834,6 +3862,7 @@ wireMiniCardDelegation();
   }
 
   wireOverviewToggle(root);
+  wireRightPanelToggle(root);
   startHeroTrailer(root, displayItem, { signal: _abort.signal }).catch(() => {});
   if (supportsLocalComments) {
     loadLocalCommentsInto(root, baseItem, { signal: _abort.signal });
