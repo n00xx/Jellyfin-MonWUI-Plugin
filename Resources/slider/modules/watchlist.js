@@ -50,6 +50,14 @@ const WATCHLIST_ICON_PATH = "M1 3h16v2H1Zm0 6h6v2H1Zm0 6h8v2H1Zm8-4.24h3.85L14.5
 const WATCHLIST_ICON_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill="rgba(255,247,224,0.92)" d="${WATCHLIST_ICON_PATH}"/></svg>`
 )}`;
+// The Buscar (search) nav button sits right next to the Watchlist one and shares its base class
+// (WATCHLIST_NAV_BUTTON_CLASS) so it inherits the same icon/label styling and the same
+// MutationObserver self-mutation guard in isTabsSliderMutationRelevant() for free — only a
+// second, button-specific class is needed to tell the two apart when querying for either.
+const SEARCH_NAV_BUTTON_CLASS = "monwui-search-nav-button";
+const SEARCH_MUI_NAV_LINK_CLASS = "monwui-search-nav-link";
+const SEARCH_NAV_KIND_ATTR = "data-monwui-search-nav-kind";
+const SEARCH_ICON_PATH = "M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5A6.5 6.5 0 1 0 9.5 16a6.47 6.47 0 0 0 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5A4.5 4.5 0 0 1 9.5 14Z";
 const DASHBOARD_TTL_MS = 30_000;
 const GENERAL_STATS_TTL_MS = 60_000;
 const WATCHLIST_SMART_FILL_STORAGE_KEY = "monwui:watchlist:smart-fill-count";
@@ -695,6 +703,30 @@ function getWatchlistMuiTabsButtonMarkup(label) {
   `;
 }
 
+function getSearchTabsButtonMarkup(label) {
+  const safeLabel = escapeHtml(label);
+  return `
+    <span class="monwui-watchlist-nav-icon" aria-hidden="true">
+      <svg class="monwui-watchlist-nav-svg" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" focusable="false">
+        <path fill="currentColor" d="${SEARCH_ICON_PATH}" />
+      </svg>
+    </span>
+    <span class="monwui-watchlist-nav-label">${safeLabel}</span>
+  `;
+}
+
+function getSearchMuiTabsButtonMarkup(label) {
+  const safeLabel = escapeHtml(label);
+  return `
+    <span class="MuiButton-icon MuiButton-startIcon MuiButton-iconSizeMedium monwui-watchlist-nav-icon" aria-hidden="true">
+      <svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium monwui-watchlist-nav-svg" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" focusable="false" aria-hidden="true" viewBox="0 0 24 24">
+        <path fill="currentColor" d="${SEARCH_ICON_PATH}" />
+      </svg>
+    </span>
+    <span class="monwui-watchlist-nav-label">${safeLabel}</span>
+  `;
+}
+
 function renderWatchlistIconSvg(className = "", { ariaHidden = true } = {}) {
   const safeClassName = escapeHtml(text(className));
   const hiddenAttr = ariaHidden ? ' aria-hidden="true" focusable="false"' : "";
@@ -705,6 +737,21 @@ function getWatchlistNavHref() {
   return text(window.location.hash).startsWith("#/index")
     ? "#/index?tab=watchlist"
     : "#/home?tab=watchlist";
+}
+
+/**
+ * Buscar has no real route (same as Watchlist — see createTabsSliderButton): the href only
+ * exists for link semantics/middle-click, the click handler always preventDefault()s and opens
+ * the overlay instead. buscarPage.js is dynamically imported so its (heavier, Seerr+library
+ * merged search) code is not paid for on every page load, only when the user opens it.
+ */
+async function openBuscarSearchPage() {
+  try {
+    const { openBuscarPage } = await import("./buscarPage.js");
+    await openBuscarPage();
+  } catch (e) {
+    console.warn("openBuscarSearchPage failed:", e);
+  }
 }
 
 function isMuiHomeTabLink(link) {
@@ -7361,6 +7408,48 @@ function createMuiTabsSliderButton() {
   return link;
 }
 
+function createSearchTabsSliderButton() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `emby-tab-button ${WATCHLIST_NAV_BUTTON_CLASS} ${SEARCH_NAV_BUTTON_CLASS}`;
+  button.setAttribute(SEARCH_NAV_KIND_ATTR, "legacy");
+  button.setAttribute("aria-haspopup", "dialog");
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try { button.blur(); } catch {}
+    await openBuscarSearchPage();
+  });
+  return button;
+}
+
+function createSearchMuiTabsSliderButton() {
+  const link = document.createElement("a");
+  link.className = [
+    WATCHLIST_NAV_BUTTON_CLASS,
+    SEARCH_NAV_BUTTON_CLASS,
+    SEARCH_MUI_NAV_LINK_CLASS,
+    "MuiButtonBase-root",
+    "MuiButton-root",
+    "MuiButton-text",
+    "MuiButton-textInherit",
+    "MuiButton-sizeMedium",
+    "MuiButton-textSizeMedium",
+    "MuiButton-colorInherit",
+  ].join(" ");
+  link.href = "#/monwui-search";
+  link.setAttribute(SEARCH_NAV_KIND_ATTR, "mui");
+  link.setAttribute("aria-haspopup", "dialog");
+  link.setAttribute("role", "button");
+  link.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try { link.blur(); } catch {}
+    await openBuscarSearchPage();
+  });
+  return link;
+}
+
 function refreshTabsSliderButton() {
   tabsSliderRefreshQueued = false;
   ensureStyles();
@@ -7376,6 +7465,9 @@ function refreshTabsSliderButton() {
   const label = L("watchlistOpen", "İzleme Listesi");
   const legacyMarkup = getWatchlistTabsButtonMarkup(label);
   const muiMarkup = getWatchlistMuiTabsButtonMarkup(label);
+  const searchLabel = L("buscarOpen", "Buscar");
+  const searchLegacyMarkup = getSearchTabsButtonMarkup(searchLabel);
+  const searchMuiMarkup = getSearchMuiTabsButtonMarkup(searchLabel);
 
   sliders.forEach((slider) => {
     if (!(slider instanceof HTMLElement)) return;
@@ -7394,6 +7486,26 @@ function refreshTabsSliderButton() {
     }
     if (button.getAttribute("aria-label") !== label) {
       button.setAttribute("aria-label", label);
+    }
+
+    let searchButton = slider.querySelector(`.${SEARCH_NAV_BUTTON_CLASS}[${SEARCH_NAV_KIND_ATTR}="legacy"]`);
+    if (!searchButton) {
+      searchButton = createSearchTabsSliderButton();
+      if (button.parentElement === slider && button.nextSibling) {
+        slider.insertBefore(searchButton, button.nextSibling);
+      } else {
+        slider.appendChild(searchButton);
+      }
+    }
+
+    if (searchButton.innerHTML !== searchLegacyMarkup) {
+      searchButton.innerHTML = searchLegacyMarkup;
+    }
+    if (searchButton.getAttribute("title") !== searchLabel) {
+      searchButton.setAttribute("title", searchLabel);
+    }
+    if (searchButton.getAttribute("aria-label") !== searchLabel) {
+      searchButton.setAttribute("aria-label", searchLabel);
     }
   });
 
@@ -7420,6 +7532,26 @@ function refreshTabsSliderButton() {
     }
     if (link.getAttribute("aria-label") !== label) {
       link.setAttribute("aria-label", label);
+    }
+
+    let searchLink = container.querySelector(`.${SEARCH_NAV_BUTTON_CLASS}[${SEARCH_NAV_KIND_ATTR}="mui"]`);
+    if (!searchLink) {
+      searchLink = createSearchMuiTabsSliderButton();
+      if (link.parentElement === container && link.nextSibling) {
+        container.insertBefore(searchLink, link.nextSibling);
+      } else {
+        container.appendChild(searchLink);
+      }
+    }
+
+    if (searchLink.innerHTML !== searchMuiMarkup) {
+      searchLink.innerHTML = searchMuiMarkup;
+    }
+    if (searchLink.getAttribute("title") !== searchLabel) {
+      searchLink.setAttribute("title", searchLabel);
+    }
+    if (searchLink.getAttribute("aria-label") !== searchLabel) {
+      searchLink.setAttribute("aria-label", searchLabel);
     }
   });
 

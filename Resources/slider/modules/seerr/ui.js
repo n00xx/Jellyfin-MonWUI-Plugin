@@ -68,7 +68,7 @@ function normalizeItemType(item) {
   return "";
 }
 
-function accessHasSerr(access) {
+export function accessHasSerr(access) {
   return access?.serrEnabled !== false && access?.enabled === true;
 }
 
@@ -231,7 +231,7 @@ function buildPayloadFromItem(item, options = {}) {
   };
 }
 
-function notify(message, type = "info") {
+export function notify(message, type = "info") {
   const clean = text(message);
   if (!clean) return;
   try {
@@ -306,7 +306,7 @@ function shouldFallbackMovieToArr(result) {
   return result?.duplicate === true && (status === "completed" || status === "available");
 }
 
-function requestErrorMessage(error, fallback = L("serrRequestFailed", "Seerr isteği oluşturulamadı.")) {
+export function requestErrorMessage(error, fallback = L("serrRequestFailed", "Seerr isteği oluşturulamadı.")) {
   const code = text(error?.payload?.code || error?.payload?.errorCode);
   const message = text(error?.message || error?.payload?.error);
   if (code === "serrAlreadyAvailable" || code === "already_available" || /already available in jellyfin/i.test(message)) {
@@ -668,23 +668,23 @@ export async function appendSerrRequestButton(host, item, options = {}) {
   return button;
 }
 
-function posterUrl(result) {
+export function posterUrl(result) {
   const path = text(result?.posterPath || result?.poster_path || result?.remotePoster || result?.posterUrl);
   if (!path) return "";
   if (/^https?:\/\//i.test(path)) return path;
   return `https://image.tmdb.org/t/p/w154${path}`;
 }
 
-function resultTitle(result) {
+export function resultTitle(result) {
   return text(result?.title || result?.name || result?.originalTitle || result?.originalName, L("serrUntitled", "İçerik"));
 }
 
-function resultMediaType(result) {
+export function resultMediaType(result) {
   const type = text(result?.mediaType || result?.media_type).toLowerCase();
   return type === "tv" || type === "movie" || type === "collection" ? type : "";
 }
 
-function resultYear(result) {
+export function resultYear(result) {
   const date = text(result?.releaseDate || result?.firstAirDate || result?.release_date || result?.first_air_date);
   const year = Number(result?.year || result?.Year);
   if (Number.isFinite(year) && year > 1800) return String(year);
@@ -751,7 +751,7 @@ async function searchSerrByTmdbId({ id, type, language }) {
   });
 }
 
-function mergeSearchResults(...lists) {
+export function mergeSearchResults(...lists) {
   const seen = new Set();
   const output = [];
   for (const list of lists) {
