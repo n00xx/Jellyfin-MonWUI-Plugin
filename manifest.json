@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.9",
+        "changelog": "v3.7.1.9 (custom fork)\n\nDos errores reportados: la ventana \"Ver todos\" se quedaba corta, y las notificaciones de contenido nuevo seguían apareciendo con el aviso desactivado.\n\n- \"Ver todos\" se congelaba siempre en la primera página (40 elementos) sin importar el tamaño real de la biblioteca. El sensor de scroll que pedía la siguiente página solo avisaba en el instante en que aparecía en pantalla; si ya cabía desde el principio (algo mucho más frecuente desde que esa ventana ocupa toda la pantalla), nunca volvía a avisar y el resto del contenido no se cargaba nunca. Ahora se revisa activamente tras cada página si sigue haciendo falta pedir más, en las 5 vistas que comparten esa ventana (género, director, recomendaciones personales, estudio y cada biblioteca).\n- Desactivar \"Enable toast for newly added content\" solo apagaba el aviso emergente; el contenido nuevo seguía entrando a la lista de notificaciones y sumando al contador sin que hubiera forma de evitarlo. Ahora ese mismo interruptor también controla si el contenido nuevo entra a la lista.\n\nNotas:\n- Reinicia Jellyfin después de instalar\n- Recarga forzada (Ctrl + F5) una vez tras actualizar",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.9/JMSFusion-3.7.1.9-server.zip",
+        "checksum": "9b10700dc2a35eb134869e4a868a979c",
+        "timestamp": "2026-07-30T12:53:08.0000000Z"
+      },
+      {
         "version": "3.7.1.8",
         "changelog": "v3.7.1.8 (custom fork)\n\nEl botón \"Ver todos\" de cada categoría abría una ventana de tamaño fijo (máximo 1200px de ancho), y dentro de ella la caja de búsqueda quedaba apretada junto al botón de cerrar.\n\n- La ventana \"Ver todos\" ahora ocupa toda la pantalla y se adapta automáticamente al tamaño del dispositivo, en las 5 vistas que la comparten (género, director, recomendaciones personales, estudio, y la de cada biblioteca).\n- La caja de búsqueda dentro de esa ventana ahora queda centrada en el encabezado en vez de pegada al botón de cerrar.\n\nNotas:\n- Reinicia Jellyfin después de instalar\n- Recarga forzada (Ctrl + F5) una vez tras actualizar",
         "targetAbi": "10.11.0.0",
