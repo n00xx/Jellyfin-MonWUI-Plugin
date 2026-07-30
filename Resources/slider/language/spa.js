@@ -256,6 +256,7 @@ export const languageLabels = {
   watchlistImportFavoritesOnStartup: "Importar favoritos al iniciar",
   watchlistImportFavoritesOnStartupDescription: "Actívalo durante la configuración inicial o cuando quieras importar tus favoritos. Una vez importados, no es necesario mantenerlo activado.",
   watchlistOpen: "Lista de seguimiento",
+  jellyfinGuiButton: "Interfaz de Jellyfin",
   trailer: "Tráiler",
   playTrailerNowLabel: "Reproducir tráiler",
   openYoutubeLabel: "Abrir en YouTube",

@@ -1,4 +1,4 @@
-import { makeApiRequest, fetchItemDetailsFull, getDetailsUrl, playNow, fetchLocalTrailers, pickBestLocalTrailer, getVideoStreamUrl, updateFavoriteStatus, getEmbyHeaders, getSessionInfo } from "../../Plugins/JMSFusion/runtime/api.js";
+import { makeApiRequest, fetchItemDetailsFull, getDetailsUrl, goToDetailsPage, isCurrentUserAdmin, playNow, fetchLocalTrailers, pickBestLocalTrailer, getVideoStreamUrl, updateFavoriteStatus, getEmbyHeaders, getSessionInfo } from "../../Plugins/JMSFusion/runtime/api.js";
 import { withServer } from "./jfUrl.js";
 import { getConfig, getDetailsModalRuntimeConfig } from "./config.js";
 import { getLanguageLabels } from "../language/index.js";
@@ -3275,6 +3275,9 @@ export async function openDetailsModal({ itemId, item: preloadedItem = null, det
   const isMusicAlbum = baseItem.Type === "MusicAlbum";
   const isAudio = baseItem.Type === "Audio";
   const isMusicType = isMusicAlbum || isAudio;
+  // Only Series/Season/Episode pages render an Episodes list in the right panel — that's the
+  // only case with enough content on the right to justify giving it the hero's freed-up width.
+  const showsEpisodesPanel = !isTrailerItem && !isMovie && !isBoxSet && !isMusicType;
   const supportsLocalComments =
     !isVirtualTrailer &&
     detailsRuntime.showLocalComments &&
@@ -3742,17 +3745,20 @@ wireMiniCardDelegation();
       <button class="jmsdm-btn jmsdm-watchlist-open">
         ${icon("M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z")} ${config.languageLabels.watchlistOpen || "İzleme Listesi"}
       </button>
+      <button type="button" class="jmsdm-btn jmsdm-jfgui" hidden>
+        ${icon("M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3z")} ${label("jellyfinGuiButton", "Jellyfin GUI")}
+      </button>
     `;
 
   root.innerHTML = `
     <div class="jmsdm-backdrop" role="dialog" aria-modal="true" aria-label="${name}">
       <div class="jmsdm-card" tabindex="-1">
-        <div class="jmsdm-content">
+        <div class="jmsdm-content${showsEpisodesPanel ? " jmsdm-content--wide-episodes" : ""}">
+          <div class="jmsdm-topbar">
+            <button class="jmsdm-close" aria-label="${config.languageLabels.closeButton || "Kapat"}">✕</button>
+          </div>
           <div class="jmsdm-hero">
             ${heroImageUrl ? `<img src="${heroImageUrl}" alt="">` : ""}
-            <div class="jmsdm-topbar">
-              <button class="jmsdm-close" aria-label="${config.languageLabels.closeButton || "Kapat"}">✕</button>
-            </div>
 
             <div class="jmsdm-heroTitleWrap" aria-hidden="true">
               <div class="jmsdm-heroTitle">${escapeHtml(name)}</div>
@@ -4182,6 +4188,32 @@ wireMiniCardDelegation();
   }
 
   wireIssueReporter();
+
+  // Admin-only escape hatch back to Jellyfin's native details page — restores what the removed
+  // "Go to Page" button used to do, gated so regular users only ever see the MonWUI modal.
+  function wireJellyfinGuiButton() {
+    const guiBtn = root.querySelector(".jmsdm-jfgui");
+    if (!guiBtn || isTrailerItem) return;
+
+    (async () => {
+      try {
+        const isAdmin = await isCurrentUserAdmin();
+        if (!isAdmin || _abort.signal.aborted || !guiBtn.isConnected) return;
+        guiBtn.hidden = false;
+      } catch (err) {
+        console.warn("[JMSFusion] Jellyfin GUI admin check failed:", err);
+      }
+    })();
+
+    addEventListener(guiBtn, "click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await closeDetailsModal();
+      goToDetailsPage(baseItem.Id);
+    });
+  }
+
+  wireJellyfinGuiButton();
 
   function wireMiniCardClicks() {
     root.querySelectorAll(".jmsdm-minicard").forEach((el) => {

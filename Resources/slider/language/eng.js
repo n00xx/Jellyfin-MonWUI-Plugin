@@ -256,6 +256,7 @@ export const languageLabels = {
   watchlistImportFavoritesOnStartup: "Import Jellyfin favorites at startup",
   watchlistImportFavoritesOnStartupDescription: "Enable this during initial setup or whenever you want to import your favorites. Once the import is complete, it can be turned off.",
   watchlistOpen: "Watchlist",
+  jellyfinGuiButton: "Jellyfin GUI",
   trailer: "Trailer",
   playTrailerNowLabel: "Play Trailer",
   openYoutubeLabel: "Open on YouTube",
