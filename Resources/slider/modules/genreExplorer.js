@@ -358,6 +358,20 @@ export function getExplorerPointerOrigin() {
   return __originPoint;
 }
 
+/**
+ * IntersectionObserver only notifies on a *change* of intersection state. If a rendered
+ * page already fits inside the sentinel's rootMargin the moment it lands, the sentinel
+ * never crosses again and loadMore() is never re-triggered — every "See All" grid then
+ * silently freezes at one page, short of the library's real size. Callers re-check this
+ * after each non-exhausted page render and loop loadMore() manually when it's still true.
+ */
+export function isSentinelStillInRange(scroller, sentinel, marginPx = 800) {
+  if (!scroller || !sentinel) return false;
+  const rootRect = scroller.getBoundingClientRect();
+  const rect = sentinel.getBoundingClientRect();
+  return rect.top <= rootRect.bottom + marginPx;
+}
+
 
 export function openGenreExplorer(genre) {
   if (__overlay) { try { closeGenreExplorer(true); } catch {} }
@@ -502,16 +516,26 @@ async function d_loadMore() {
 
   const url = `/Users/${encodeURIComponent(userId)}/Items?` + params.toString();
 
+  let exhausted = false;
   try {
     const data = await makeApiRequest(url, { signal: __d_abort.signal });
     const items = Array.isArray(data?.Items) ? data.Items : [];
     d_renderIntoGrid(items);
     __d_startIndex += items.length;
-    if (items.length < LIMIT) { try { __d_io?.disconnect(); } catch {} }
+    if (items.length < LIMIT) {
+      exhausted = true;
+      try { __d_io?.disconnect(); } catch {}
+    }
   } catch (e) {
     if (e?.name !== 'AbortError') console.error("Director explorer fetch error:", e);
   } finally {
     __d_busy = false;
+  }
+
+  if (!exhausted && __d_overlay) {
+    const scroller = __d_overlay.querySelector('.ge-content');
+    const sentinel = __d_overlay.querySelector('.ge-sentinel');
+    if (isSentinelStillInRange(scroller, sentinel)) d_loadMore();
   }
 }
 
@@ -704,16 +728,26 @@ async function loadMore() {
     `Genres=${encodeURIComponent(__genre)}&Fields=${COMMON_FIELDS}&` +
     `SortBy=CommunityRating,DateCreated&SortOrder=Descending&Limit=${LIMIT}&StartIndex=${__startIndex}`;
 
+  let exhausted = false;
   try {
     const data = await makeApiRequest(url, { signal: __abort.signal });
     const items = Array.isArray(data?.Items) ? data.Items : [];
     renderIntoGrid(items);
     __startIndex += items.length;
-    if (items.length < LIMIT) { try { __io?.disconnect(); } catch {} }
+    if (items.length < LIMIT) {
+      exhausted = true;
+      try { __io?.disconnect(); } catch {}
+    }
   } catch (e) {
     if (e?.name !== 'AbortError') console.error("Genre explorer fetch error:", e);
   } finally {
     __busy = false;
+  }
+
+  if (!exhausted && __overlay) {
+    const scroller = __overlay.querySelector('.ge-content');
+    const sentinel = __overlay.querySelector('.ge-sentinel');
+    if (isSentinelStillInRange(scroller, sentinel)) loadMore();
   }
 }
 
@@ -913,6 +947,7 @@ async function p_loadMore() {
     __p_genreDone = !__p_topGenres.length;
   }
 
+  let exhausted = false;
   try {
     const unique = [];
     let attempts = 0;
@@ -980,12 +1015,19 @@ async function p_loadMore() {
     p_renderIntoGrid(items);
     __p_startIndex += items.length;
     if ((!items.length && __p_genreDone && __p_fallbackDone) || ((__p_genreDone && __p_fallbackDone) && items.length < LIMIT)) {
+      exhausted = true;
       try { __p_io?.disconnect(); } catch {}
     }
   } catch (e) {
     if (e?.name !== 'AbortError') console.error("Personal explorer fetch error:", e);
   } finally {
     __p_busy = false;
+  }
+
+  if (!exhausted && __p_overlay) {
+    const scroller = __p_overlay.querySelector('.ge-content');
+    const sentinel = __p_overlay.querySelector('.ge-sentinel');
+    if (isSentinelStillInRange(scroller, sentinel)) p_loadMore();
   }
 }
 
@@ -1198,16 +1240,26 @@ async function s_loadMore() {
   // silently returns unrelated items.
   params.set("StudioIds", __s_studio.studioIds.join(","));
 
+  let exhausted = false;
   try {
     const data = await makeApiRequest(`/Users/${encodeURIComponent(userId)}/Items?${params}`, { signal: __s_abort.signal });
     const items = Array.isArray(data?.Items) ? data.Items : [];
     s_renderIntoGrid(items);
     __s_startIndex += items.length;
-    if (items.length < LIMIT) { try { __s_io?.disconnect(); } catch {} }
+    if (items.length < LIMIT) {
+      exhausted = true;
+      try { __s_io?.disconnect(); } catch {}
+    }
   } catch (e) {
     if (e?.name !== 'AbortError') console.error("Studio explorer fetch error:", e);
   } finally {
     __s_busy = false;
+  }
+
+  if (!exhausted && __s_overlay) {
+    const scroller = __s_overlay.querySelector('.ge-content');
+    const sentinel = __s_overlay.querySelector('.ge-sentinel');
+    if (isSentinelStillInRange(scroller, sentinel)) s_loadMore();
   }
 }
 

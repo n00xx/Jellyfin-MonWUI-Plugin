@@ -20,6 +20,7 @@ import {
   injectGEPerfStyles,
   registerExplorerCloser,
   getExplorerPointerOrigin,
+  isSentinelStillInRange,
 } from "./genreExplorer.js";
 
 const PAGE_SIZE = 40;
@@ -52,6 +53,8 @@ let __searchTerm = "";
 let __searchTimer = null;
 let __seenIds = new Set();
 let __renderedAnything = false;
+let __scrollFallbackHandler = null;
+let __stallWarned = false;
 
 /**
  * Incremented on every reset (a new search term). Every in-flight request carries the token it
@@ -238,6 +241,12 @@ async function loadMore() {
     // request leaves the stale token behind, which no longer matches and so blocks nothing.
     if (token === __queryToken) __busyToken = -1;
   }
+
+  if (!__exhausted && __overlay && token === __queryToken) {
+    const scroller = __overlay.querySelector(".ge-content");
+    const sentinel = __overlay.querySelector(".ge-sentinel");
+    if (isSentinelStillInRange(scroller, sentinel)) loadMore();
+  }
 }
 
 function observeSentinel() {
@@ -252,6 +261,25 @@ function observeSentinel() {
     }
   }, { root: scroller, rootMargin: "800px 0px" });
   __io.observe(sentinel);
+
+  // Belt-and-suspenders: loadMore()'s own geometry recheck should already keep paging
+  // until the sentinel truly leaves the 800px margin, so this should never fire. It exists
+  // to turn a future regression (or an explorer variant this pattern hasn't reached yet)
+  // into a loud console signal instead of a silently truncated grid.
+  if (__scrollFallbackHandler) {
+    try { scroller.removeEventListener("scroll", __scrollFallbackHandler); } catch {}
+  }
+  __scrollFallbackHandler = () => {
+    if (__exhausted || __busyToken === __queryToken) return;
+    const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4;
+    if (!atBottom) return;
+    if (!__stallWarned) {
+      __stallWarned = true;
+      console.warn("[MonWUI] See All pagination stalled: reached the bottom without exhausting results — recovering via scroll fallback.");
+    }
+    loadMore();
+  };
+  scroller.addEventListener("scroll", __scrollFallbackHandler, { passive: true });
 }
 
 function resetResults() {
@@ -259,6 +287,7 @@ function resetResults() {
   __queryToken += 1;
   __startIndex = 0;
   __exhausted = false;
+  __stallWarned = false;
   __seenIds = new Set();
   if (__abort) { try { __abort.abort(); } catch {} }
   __abort = null;
@@ -418,6 +447,8 @@ export function closeSectionExplorer(skipAnimation = false) {
   __serverId = "";
   __startIndex = 0;
   __exhausted = false;
+  __stallWarned = false;
+  __scrollFallbackHandler = null;
   __isClosing = false;
   __searchTerm = "";
   __seenIds = new Set();
@@ -458,6 +489,7 @@ export function openSectionExplorer(descriptor) {
     __serverId = getSessionInfo()?.serverId || "";
     __startIndex = 0;
     __exhausted = false;
+    __stallWarned = false;
     __searchTerm = "";
     __seenIds = new Set();
     __renderedAnything = false;
