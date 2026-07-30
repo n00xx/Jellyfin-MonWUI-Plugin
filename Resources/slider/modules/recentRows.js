@@ -2779,14 +2779,21 @@ function seeAllContinueQuery(type, parentId = "") {
  * Top 10 and the TMDb top rows are curated ranked selections that no single query can
  * reproduce. Their See All widens to everything of that type in the same libraries,
  * highest rated first — the ordering those rankings are derived from.
+ *
+ * Returns null when the row is scoped to two or more libraries, which sends the caller
+ * to its fallbackHash. /Users/{id}/Items only takes a singular ParentId — that is why
+ * fetchTopRankedEntryPoolAcrossParents queries each parent separately and merges — and a
+ * plural spelling would not error, it would be dropped, leaving an unscoped query whose
+ * search silently reached every library on the server.
  */
 function seeAllTopRatedQuery(type, parentIds = []) {
   const scoped = normalizeIdList(parentIds);
+  if (scoped.length > 1) return null;
+
   return {
     IncludeItemTypes: type,
     Recursive: "true",
     ...(scoped.length === 1 ? { ParentId: scoped[0] } : {}),
-    ...(scoped.length > 1 ? { ParentIds: scoped.join(",") } : {}),
     SortBy: "CommunityRating,DateCreated",
     SortOrder: "Descending",
   };
