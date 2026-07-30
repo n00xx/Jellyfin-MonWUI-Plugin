@@ -97,7 +97,7 @@ let notifRenderGen = 0;
 let __hoverOpenTimer  = null;
 let __hoverCloseTimer = null;
 let recentToastMap = new Map();
-let notifState = {
+export let notifState = {
   list: [],
   lastSeenCreatedAt: 0,
   toastQueue: [],
@@ -1460,7 +1460,7 @@ async function renderResume() {
   }
 }
 
-async function pollLatest({ seedIfFirstRun = false } = {}) {
+export async function pollLatest({ seedIfFirstRun = false } = {}) {
   if (!isAuthReady()) return;
   if (!notifState.seenIds) notifState.seenIds = new Set();
   try {
@@ -1486,12 +1486,17 @@ async function pollLatest({ seedIfFirstRun = false } = {}) {
 
     const nowTs = Date.now();
     for (const it of fresh) {
-      pushNotification({
-        itemId: it.Id,
-        title: it.Name || config.languageLabels.newContentDefault,
-        timestamp: nowTs,
-        status: "added",
-      });
+      // "Enable toast for newly added content" is the only control this category exposes —
+      // if it's off, the item must not land in the drawer list or badge count either, or
+      // turning it off does nothing the user can observe.
+      if (config.enableToastNew) {
+        pushNotification({
+          itemId: it.Id,
+          title: it.Name || config.languageLabels.newContentDefault,
+          timestamp: nowTs,
+          status: "added",
+        });
+      }
       notifState.seenIds.add(it.Id);
     }
 
