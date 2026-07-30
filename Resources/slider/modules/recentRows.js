@@ -2820,7 +2820,7 @@ function queueEnterAnimation(el) {
   return el;
 }
 
-function createRecommendationCard(item, serverId, {
+export function createRecommendationCard(item, serverId, {
   aboveFold = false,
   showProgress = false,
   variant = "default",
@@ -3798,6 +3798,19 @@ async function fetchLibraryHubItems(userId, limit, lib) {
     const data = await makeApiRequest(url);
     const items = Array.isArray(data?.Items) ? data.Items : [];
     const out = uniqById(items).slice(0, limit);
+    if (!out.length) {
+      // Jellyfin's own item count for this ParentId is 0 here, not just this query's
+      // type filter — a library whose "content type" doesn't match what's actually
+      // in the folder (e.g. loose movie files under a "Shows" library) never gets
+      // indexed by Jellyfin at all, so no client-side query can recover it. Surface
+      // this instead of letting the row vanish with no trace, since that's exactly
+      // what made the "Documentales" row silently disappear undiagnosable.
+      console.info(
+        `recentRows: library hub "${lib?.Name || parentId}" (CollectionType="${lib?.CollectionType || "unset"}") ` +
+        `devolvió 0 elementos con IncludeItemTypes=${getLibraryHubItemTypes(lib?.CollectionType)} — la fila se ocultará. ` +
+        `Si esperabas contenido aquí, revisa el "Tipo de contenido" de esta biblioteca en el Dashboard de Jellyfin.`
+      );
+    }
     await attachSeriesPosterSourceToEpsAndSeasons(out);
     try {
       if (STATE.db && STATE.scope) {
