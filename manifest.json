@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.10",
+        "changelog": "v3.7.1.10 (custom fork)\n\nTres cambios: un error de posters faltantes en las filas de inicio, un rediseño del reproductor en la página de detalles de series, y un nuevo botón para administradores.\n\n- Las filas de bibliotecas personalizadas (por ejemplo \"Donghuas\") mostraban menos posters de los que realmente había: la tarjeta destacada (hero) restaba un título del carrusel antes de mostrar el resto, así que una biblioteca de 2-3 elementos parecía tener uno o dos \"desaparecidos\". Ahora, cuando la biblioteca tiene muy pocos elementos, se muestran todos como posters normales sin tarjeta destacada.\n- En la página de detalles de series, el video del tráiler ocupaba todo el ancho y quedaba con franjas negras a los lados; ahora el video se alinea a la izquierda y el panel de Episodios usa el espacio liberado a la derecha, mostrando más episodios sin necesidad de bajar tanto el scroll.\n- Se añadió el botón \"Jellyfin GUI\", visible solo para administradores, que cierra el modal y abre la página de detalles nativa de Jellyfin para ese título.\n\nNotas:\n- Reinicia Jellyfin después de instalar\n- Recarga forzada (Ctrl + F5) una vez tras actualizar",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.10/JMSFusion-3.7.1.10-server.zip",
+        "checksum": "9f92ccc912102de4e5d472f2483aee8e",
+        "timestamp": "2026-07-30T14:21:04.0000000Z"
+      },
+      {
         "version": "3.7.1.9",
         "changelog": "v3.7.1.9 (custom fork)\n\nDos errores reportados: la ventana \"Ver todos\" se quedaba corta, y las notificaciones de contenido nuevo seguían apareciendo con el aviso desactivado.\n\n- \"Ver todos\" se congelaba siempre en la primera página (40 elementos) sin importar el tamaño real de la biblioteca. El sensor de scroll que pedía la siguiente página solo avisaba en el instante en que aparecía en pantalla; si ya cabía desde el principio (algo mucho más frecuente desde que esa ventana ocupa toda la pantalla), nunca volvía a avisar y el resto del contenido no se cargaba nunca. Ahora se revisa activamente tras cada página si sigue haciendo falta pedir más, en las 5 vistas que comparten esa ventana (género, director, recomendaciones personales, estudio y cada biblioteca).\n- Desactivar \"Enable toast for newly added content\" solo apagaba el aviso emergente; el contenido nuevo seguía entrando a la lista de notificaciones y sumando al contador sin que hubiera forma de evitarlo. Ahora ese mismo interruptor también controla si el contenido nuevo entra a la lista.\n\nNotas:\n- Reinicia Jellyfin después de instalar\n- Recarga forzada (Ctrl + F5) una vez tras actualizar",
         "targetAbi": "10.11.0.0",
