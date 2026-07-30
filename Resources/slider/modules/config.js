@@ -545,12 +545,19 @@ function applyShippedDefaultsOnce(cfg) {
     const storedRev = Number(localStorage.getItem(DEFAULTS_REV_KEY) || 0);
     if (Number.isFinite(storedRev) && storedRev >= DEFAULTS_REV) return false;
 
+    let wroteAny = false;
     for (const [key, value] of Object.entries(SHIPPED_DEFAULTS)) {
+      // Only seed a key nobody has ever stored a value for. A value the user (or an
+      // earlier default) already set must never be silently overwritten by a later
+      // revision bump, or "I customized this" and "it reverted itself" become the same
+      // thing from the user's side.
+      if (localStorage.getItem(key) !== null) continue;
       const next = typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value);
       localStorage.setItem(key, next);
+      wroteAny = true;
     }
     localStorage.setItem(DEFAULTS_REV_KEY, String(DEFAULTS_REV));
-    return true;
+    return wroteAny;
   } catch {
     return false;
   }
@@ -558,9 +565,6 @@ function applyShippedDefaultsOnce(cfg) {
 
 export function getConfig() {
   const forceGlobal = __globalOverride?.forceGlobal === true;
-  if (window.__JMS_GLOBAL_CONFIG__) {
-    return window.__JMS_GLOBAL_CONFIG__;
-  }
 
   function readPeakSlider() {
   const variant = normalizeSliderCssVariant(localStorage.getItem('cssVariant'));

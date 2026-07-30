@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.7",
+        "changelog": "v3.7.1.7 (custom fork)\n\nTres causas de que un ajuste ya configurado se revirtiera solo, sin tocar nada.\n\nUn cambio de ajuste podía perderse en silencio:\n- Cada guardado quedaba en cola 500ms antes de enviarse al servidor. Si cerrabas\n  la pestaña, recargabas, o el envío fallaba por red, el cambio nunca llegaba a\n  publicarse — y la siguiente vez que abrías la app, el valor viejo del\n  servidor pisaba tu cambio otra vez, sin ningún aviso.\n- Ahora un cambio local que no se confirmó como guardado tiene prioridad sobre\n  lo que traiga el servidor, y se reintenta publicar en cuanto la app termina\n  de cargar.\n\nRegistrar un ajuste nuevo podía borrar el que ya tenías:\n- Si el servidor todavía no tenía guardado un ajuste para tu perfil (algo muy\n  común: el blob de escritorio y el de móvil se sincronizan por separado), el\n  simple hecho de que la app reconociera ese ajuste lo borraba de tu\n  dispositivo en vez de dejarlo como estaba.\n- Ahora reconocer un ajuste nunca borra el valor que ya tenías guardado.\n\nLos valores de fábrica de Notificaciones podían pisar lo que ya habías\nelegido:\n- Ciertos ajustes de notificaciones se reescribían a su valor de fábrica en\n  segundo plano, sin importar si ya los habías cambiado a propósito.\n- Ahora un valor de fábrica solo se aplica si nunca habías configurado ese\n  ajuste.\n\nNotas:\n- Reinicia Jellyfin después de instalar\n- Recarga forzada (Ctrl + F5) una vez tras actualizar",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.7/JMSFusion-3.7.1.7-server.zip",
+        "checksum": "82aa26e765baf80041aba60974941c26",
+        "timestamp": "2026-07-30T04:56:24.0000000Z"
+      },
+      {
         "version": "3.7.1.6",
         "changelog": "v3.7.1.6 (custom fork)\n\nLas configuraciones globales forzadas ahora llegan a todos los dispositivos.\n\nSincronización de ajustes globales:\n- Cuando \"Forzar configuración global de usuario\" está activo, guardar un\n  ajuste solo publicaba el perfil que estabas viendo en ese momento (escritorio\n  o móvil). El otro perfil se quedaba con lo último que se hubiera publicado\n  para él, a veces días o semanas atrás, así que un cambio hecho desde el\n  navegador de escritorio nunca llegaba a los celulares y tablets, y viceversa.\n- Ahora cada guardado de un administrador con la configuración global forzada\n  publica ambos perfiles (escritorio y móvil) a la vez, así que un solo cambio\n  aplica en todos los dispositivos sin tener que repetirlo viendo la app en\n  cada tipo de pantalla.\n\nNotas:\n- Reinicia Jellyfin después de instalar\n- Recarga forzada (Ctrl + F5) una vez tras actualizar",
         "targetAbi": "10.11.0.0",

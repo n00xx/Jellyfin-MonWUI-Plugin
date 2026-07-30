@@ -79,6 +79,23 @@ const originalSetItem = storage.setItem.bind(storage);
 const originalRemoveItem = storage.removeItem.bind(storage);
 const originalClear = storage.clear.bind(storage);
 
+// Durable (survives reload) marker for "a local edit happened that we haven't confirmed
+// the server received yet". Read/written only via the original* accessors so it never
+// goes through the managed-key sync loop itself.
+const PENDING_PUBLISH_KEY = "jms:managedStorage:pendingPublish:v1";
+
+function markPendingPublish() {
+  try { originalSetItem(PENDING_PUBLISH_KEY, "1"); } catch {}
+}
+
+function clearPendingPublish() {
+  try { originalRemoveItem(PENDING_PUBLISH_KEY); } catch {}
+}
+
+function hasPendingPublish() {
+  try { return originalGetItem(PENDING_PUBLISH_KEY) === "1"; } catch { return false; }
+}
+
 function detectProfile() {
   try {
     const coarse = window.matchMedia?.("(pointer: coarse)")?.matches === true;
@@ -104,15 +121,13 @@ function registerKeys(keys = []) {
   for (const key of keys) {
     const normalized = String(key || "").trim();
     if (!normalized || isDeniedKey(normalized)) continue;
+    // Registering a key only starts tracking it going forward. It must not delete an
+    // existing local value just because the server's last-published snapshot doesn't
+    // include it — that snapshot is frequently incomplete (a different profile, an older
+    // client version, a publish that never completed), not an authoritative "this was
+    // cleared" signal. A stale unmanaged key sitting unused is a much smaller problem
+    // than silently erasing a setting nobody asked to lose.
     managedKeys.add(normalized);
-    if (snapshotLoaded && !serverSnapshotEmpty && !Object.prototype.hasOwnProperty.call(state, normalized)) {
-      suspendSync = true;
-      try {
-        originalRemoveItem(normalized);
-      } finally {
-        suspendSync = false;
-      }
-    }
   }
 }
 
@@ -162,8 +177,9 @@ function getQueuedPersistPromise() {
   return queuedPersistPromise;
 }
 
-function applySnapshotToStorage(snapshot) {
+function applySnapshotToStorage(snapshot, { overwriteLocal = true } = {}) {
   registerKeys(Object.keys(snapshot || {}));
+  if (!overwriteLocal) return;
   suspendSync = true;
   try {
     for (const [key, value] of Object.entries(snapshot || {})) {
@@ -202,6 +218,7 @@ async function persistSnapshot(snapshot, options = {}) {
   }
 
   if (payloadJson === lastPersistedJson) {
+    clearPendingPublish();
     return { ok: true, skipped: true, profile, rev };
   }
 
@@ -230,6 +247,7 @@ async function persistSnapshot(snapshot, options = {}) {
     rev = Number(result?.rev || rev || 0);
     bridge.bootstrapOverride = { forceGlobal, global: payload, rev, profile };
     lastPersistedJson = payloadJson;
+    clearPendingPublish();
     return result;
   }).catch(error => {
     console.warn("[JMSFusion] Managed storage persist failed:", error);
@@ -256,6 +274,7 @@ async function persistSnapshot(snapshot, options = {}) {
 }
 
 function schedulePersist() {
+  markPendingPublish();
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
@@ -324,11 +343,23 @@ async function loadServerSnapshot() {
     rev = Number(payload?.rev || 0);
 
     const snapshot = normalizeSnapshot(payload?.global || {});
+    // A pending flag means a previous session changed a setting and never got confirmation
+    // it reached the server (network hiccup, tab closed mid-debounce, etc). That local
+    // value is newer than this snapshot, so it must win instead of being clobbered here —
+    // it gets retried below once the rest of the app has registered the real key set.
+    const hasUnconfirmedLocalEdit = hasPendingPublish();
     state = snapshot;
     serverSnapshotEmpty = Object.keys(snapshot).length === 0;
     lastPersistedJson = serializeSnapshot(snapshot);
-    applySnapshotToStorage(snapshot);
+    applySnapshotToStorage(snapshot, { overwriteLocal: !hasUnconfirmedLocalEdit });
     bridge.bootstrapOverride = { forceGlobal, global: snapshot, rev, profile };
+
+    if (hasUnconfirmedLocalEdit) {
+      window.setTimeout(() => {
+        if (!hasPendingPublish()) return;
+        void persistSnapshot(buildSnapshotFromStorage());
+      }, 3000);
+    }
   } catch (error) {
     console.warn("[JMSFusion] Managed storage preload failed:", error);
     bridge.bootstrapOverride = { forceGlobal: false, global: {}, rev: 0, profile };
