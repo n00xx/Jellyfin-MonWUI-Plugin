@@ -80,6 +80,11 @@ const LIBRARY_HUBS_HERO_ROTATE_MS = 5 * 60 * 1000;
 const LIBRARY_HUBS_HERO_ROTATE_STAGGER_MS = 7 * 1000;
 /** Extra items fetched beyond the row, reserved for the rotating hero to pick from. */
 const LIBRARY_HUBS_HERO_RESERVE = 8;
+/**
+ * Below this pool size, splitting off a hero leaves too sparse a poster row (hero + 1-2 cards
+ * reads as broken, not featured) — so small sections render every item as a plain poster instead.
+ */
+const MIN_ITEMS_FOR_HERO_SPLIT = 4;
 const OTHER_RECENT_CARD_COUNT   = UNIFIED_ROW_ITEM_LIMIT;
 const OTHER_CONTINUE_CARD_COUNT = UNIFIED_ROW_ITEM_LIMIT;
 const OTHER_EP_CARD_COUNT       = UNIFIED_ROW_ITEM_LIMIT;
@@ -4212,7 +4217,7 @@ async function fillSectionWithItems({
     if (!isPassCurrent()) return false;
 
     let best = null;
-    if (useHero && pool.length) {
+    if (useHero && pool.length >= MIN_ITEMS_FOR_HERO_SPLIT) {
       if (randomHero) {
         const idx = pickRandomIndex(pool.length);
         best = idx >= 0 ? pool[idx] : pool[0];
@@ -4227,6 +4232,7 @@ async function fillSectionWithItems({
 
     releaseHeroHost();
     if (useHero && best) {
+      heroHost.style.display = "";
       const hero = await createRowHeroCard(best, STATE.serverId, heroLabel, {
         showProgress,
         disableTrailer: disableHeroTrailer
@@ -4238,6 +4244,12 @@ async function fillSectionWithItems({
       // Rotation re-picks from this pool, so it needs no further network work.
       heroPool = pool;
       startHeroRotation();
+    } else if (useHero) {
+      // Pool too small to justify a hero this pass (see MIN_ITEMS_FOR_HERO_SPLIT) — hide the
+      // host so it doesn't sit there as an empty bordered box above the poster row.
+      stopHeroRotation();
+      heroPool = null;
+      heroHost.style.display = "none";
     }
 
     row.innerHTML = "";
