@@ -124,13 +124,9 @@ function isTouchRuntime() {
 }
 
 function shouldEnableTouchDeviceClass() {
-  if (!isTouchDevice()) return false;
-  try {
-    if (window.matchMedia) {
-      return window.matchMedia('(max-width: 750px)').matches;
-    }
-  } catch {}
-  return (window.innerWidth || 0) <= 750;
+  // No width cutoff: a tablet (iPad) has no real pointer to sustain :hover either, so it
+  // needs the same long-press-to-preview path as a phone, not the desktop pointerenter one.
+  return isTouchDevice();
 }
 
 function syncTouchDeviceClass() {
