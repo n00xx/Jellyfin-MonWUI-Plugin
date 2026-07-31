@@ -1,4 +1,4 @@
-import { getYoutubeEmbedUrl, getProviderUrl, isValidUrl, createTrailerIframe, debounce, getHighResImageUrls, prefetchImages, getHighestQualityBackdropIndex, createImageWarmQueue } from "./utils.js";
+import { getYoutubeEmbedUrl, getProviderUrl, isValidUrl, createTrailerIframe, debounce, getHighResImageUrls, prefetchImages, getHighestQualityBackdropIndex, createImageWarmQueue, shouldUseEmbedProxy, toEmbedProxyUrl, postYouTubeIframeCommand } from "./utils.js";
 import { updateFavoriteStatus, updatePlayedStatus, getSessionInfo } from "../../Plugins/JMSFusion/runtime/api.js";
 import { getConfig } from "./config.js";
 import { getLanguageLabels, getDefaultLanguage } from "../language/index.js";
@@ -1040,19 +1040,24 @@ function openTrailerModal(trailerUrl, trailerName, itemName = '', itemType = '',
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   let finalEmbedUrl = embedUrl;
-  if (isMobile) {
-    finalEmbedUrl = embedUrl;
 
-    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-      finalEmbedUrl += '&playsinline=1&autoplay=1';
-    }
-  }
+  // Must stay above the rewrite below: reading it there hits the temporal dead
+  // zone, and the empty catch swallows the ReferenceError, silently dropping
+  // every param the block sets.
+  const hasJsApi = (() => {
+    try {
+      return new URL(finalEmbedUrl, window.location.origin)
+        .searchParams.get("enablejsapi") === "1";
+    } catch { return false; }
+  })();
 
   const iframe = document.createElement("iframe");
   try {
     const u = new URL(finalEmbedUrl, window.location.origin);
     u.searchParams.set('autoplay', '1');
-    u.searchParams.set('mute', '0');
+    // iOS refuses unmuted autoplay outright; start muted there and let the
+    // existing unlockAudio() handler unmute on the first user interaction.
+    u.searchParams.set('mute', isMobile ? '1' : '0');
     u.searchParams.set('playsinline', '1');
     if (hasJsApi) {
       u.searchParams.set('enablejsapi', '1');
@@ -1060,6 +1065,11 @@ function openTrailerModal(trailerUrl, trailerName, itemName = '', itemType = '',
     }
     finalEmbedUrl = u.toString();
   } catch {}
+  // An iOS WebView cannot load a YouTube embed directly (Error 153); route it
+  // through the same-origin wrapper page instead.
+  const useProxy = shouldUseEmbedProxy();
+  if (useProxy) finalEmbedUrl = toEmbedProxyUrl(finalEmbedUrl);
+  iframe.dataset.jmsProxied = /\/yt-embed\.html(\?|$)/.test(finalEmbedUrl) ? '1' : '0';
   iframe.src = finalEmbedUrl;
   iframe.title = trailerName;
   iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
@@ -1073,30 +1083,21 @@ function openTrailerModal(trailerUrl, trailerName, itemName = '', itemType = '',
   iframe.style.border = "none";
 
   let audioUnlocked = false;
-  const hasJsApi = (() => {
-   try { return new URL(finalEmbedUrl).searchParams.get("enablejsapi") === "1"; }
-   catch { return false; }
- })();
 
- const playViaAPI = () => {
-    if (!hasJsApi) return;
-    try {
-      iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-    } catch {}
+  // Routed through the shared helper so a proxied embed gets the wrapper's
+  // relay protocol rather than YouTube's stringified commands.
+  const playViaAPI = () => {
+    if (!hasJsApi && !useProxy) return;
+    postYouTubeIframeCommand(iframe, "playVideo");
   };
 
   const unlockAudio = () => {
     if (audioUnlocked) return;
-
-    if (!hasJsApi) return;
-    try {
-      iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-      iframe.contentWindow.postMessage('{"event":"command","func":"unMute","args":""}', '*');
-      iframe.contentWindow.postMessage('{"event":"command","func":"setVolume","args":[50]}', '*');
-      audioUnlocked = true;
-    } catch (e) {
-      console.log("Ses açma hatası:", e);
-    }
+    if (!hasJsApi && !useProxy) return;
+    postYouTubeIframeCommand(iframe, "playVideo");
+    postYouTubeIframeCommand(iframe, "unMute");
+    postYouTubeIframeCommand(iframe, "setVolume", [50]);
+    audioUnlocked = true;
   };
 
   iframe.onload = () => {

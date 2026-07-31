@@ -2324,17 +2324,41 @@ async function fetchLastPlayedSeedItems(userId, count = 1) {
       `SortBy=DatePlayed,LastPlayedDate&SortOrder=Descending&Limit=${Math.max(1, count)}&Fields=${encodeURIComponent(fields)}`;
     const r = await makeApiRequest(url);
     const items = Array.isArray(r?.Items) ? r.Items : [];
-    return items.filter(x => x?.Id);
+    // Only return on a hit: an empty-but-successful response used to return []
+    // and short-circuit the resumable fallback below, which then only ran when
+    // the request threw. A library with nothing marked fully played — but a full
+    // Continue Watching row — produced no seeds and no "Because you watched" row.
+    const played = items.filter(x => x?.Id);
+    if (played.length) return played;
   } catch {}
 
   try {
+    // Episodes collapse onto their series, so ask for headroom to still reach
+    // `count` distinct seeds after deduplication.
+    const resumableFields = fields + ",SeriesId,SeriesName";
     const url =
       `/Users/${encodeURIComponent(userId)}/Items?` +
       `Recursive=true&Filters=IsResumable&MediaTypes=Video&EnableUserData=true&` +
-      `SortBy=DatePlayed,DateCreated&SortOrder=Descending&Limit=${Math.max(1, count)}&Fields=${encodeURIComponent(fields)}`;
+      `SortBy=DatePlayed,DateCreated&SortOrder=Descending&Limit=${Math.max(1, count) * 3}&Fields=${encodeURIComponent(resumableFields)}`;
     const r = await makeApiRequest(url);
     const items = Array.isArray(r?.Items) ? r.Items : [];
-    return items.filter(x => x?.Id && isPartialPlaybackItem(x));
+
+    const seeds = [];
+    const seen = new Set();
+    for (const item of items) {
+      if (!item?.Id || !isPartialPlaybackItem(item)) continue;
+      // The primary query seeds on Movie,Series. An episode seed would title the
+      // row after the episode ("From S01E01") and ask for items similar to one
+      // episode, so resolve it to its series.
+      const seed = (item.Type === "Episode" && item.SeriesId)
+        ? { Id: item.SeriesId, Name: item.SeriesName || item.Name, Type: "Series" }
+        : item;
+      if (seen.has(seed.Id)) continue;
+      seen.add(seed.Id);
+      seeds.push(seed);
+      if (seeds.length >= Math.max(1, count)) break;
+    }
+    return seeds;
   } catch {}
 
   return [];

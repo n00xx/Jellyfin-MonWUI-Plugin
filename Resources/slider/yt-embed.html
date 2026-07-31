@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- The whole point of this page: iOS WKWebView (the Jellyfin iOS app) does not
+     send a Referer on a cross-origin iframe subresource the way a browser does,
+     and since late 2025 YouTube rejects embeds it cannot attribute to a host,
+     answering with "Error 153 - Video player configuration error". Loading the
+     player from a document served by this server gives it a same-origin parent
+     and a referrer chain it accepts. -->
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Trailer</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  iframe { display: block; width: 100%; height: 100%; border: 0; }
+</style>
+</head>
+<body>
+<script>
+(function () {
+  "use strict";
+
+  // A YouTube id reaches the DOM as an iframe src on this server's own origin.
+  // Anything that is not an id is a reflected-XSS attempt against the Jellyfin
+  // session, so it is rejected outright rather than sanitised.
+  var VIDEO_ID = /^[A-Za-z0-9_-]{6,20}$/;
+  var PARENT_ORIGIN = window.location.origin;
+  var STARTUP_GRACE_MS = 8000;
+
+  var q = new URLSearchParams(window.location.search);
+  var id = String(q.get("v") || "").trim();
+
+  function notifyParent(type, detail) {
+    if (window.parent === window) return;
+    try {
+      window.parent.postMessage(
+        { source: "jms-yt-embed", type: type, detail: detail || null },
+        PARENT_ORIGIN
+      );
+    } catch (e) {}
+  }
+
+  if (!VIDEO_ID.test(id)) {
+    notifyParent("failed", "invalid-id");
+    return;
+  }
+
+  var flag = function (name, fallback) {
+    var raw = q.get(name);
+    return raw === null ? fallback : (raw === "1" || raw === "true");
+  };
+
+  var params = new URLSearchParams({
+    autoplay: flag("autoplay", true) ? "1" : "0",
+    mute: flag("mute", true) ? "1" : "0",
+    controls: flag("controls", true) ? "1" : "0",
+    playsinline: "1",
+    rel: "0",
+    modestbranding: "1",
+    iv_load_policy: "3",
+    enablejsapi: "1",
+    origin: PARENT_ORIGIN
+  });
+
+  var start = parseInt(q.get("start") || "0", 10);
+  if (Number.isFinite(start) && start > 0) params.set("start", String(start));
+
+  var frame = document.createElement("iframe");
+  frame.id = "player";
+  frame.title = "Trailer";
+  frame.allow = "autoplay; encrypted-media; clipboard-write; accelerometer; gyroscope; picture-in-picture";
+  frame.referrerPolicy = "strict-origin-when-cross-origin";
+  frame.allowFullscreen = true;
+  frame.setAttribute("playsinline", "");
+  frame.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+  document.body.appendChild(frame);
+
+  // Error 153 renders inside the player instead of failing the load, so onload
+  // proves nothing. Treat "never reached a playing state" as the failure signal
+  // and let the parent keep its backdrop rather than reveal a broken player.
+  var settled = false;
+  var graceTimer = setTimeout(function () {
+    if (!settled) notifyParent("failed", "no-playback");
+  }, STARTUP_GRACE_MS);
+
+  function settle(type, detail) {
+    if (settled) return;
+    settled = true;
+    clearTimeout(graceTimer);
+    notifyParent(type, detail);
+  }
+
+  var api = document.createElement("script");
+  api.src = "https://www.youtube.com/iframe_api";
+  api.async = true;
+  document.head.appendChild(api);
+
+  window.onYouTubeIframeAPIReady = function () {
+    var player;
+    try {
+      player = new YT.Player("player", {
+        events: {
+          onStateChange: function (ev) {
+            if (ev.data === YT.PlayerState.PLAYING || ev.data === YT.PlayerState.BUFFERING) {
+              settle("playing");
+            } else if (ev.data === YT.PlayerState.ENDED) {
+              notifyParent("ended");
+            }
+          },
+          onError: function (ev) {
+            settle("failed", "yt-error-" + (ev && ev.data));
+          }
+        }
+      });
+    } catch (e) {
+      settle("failed", "api-init");
+      return;
+    }
+
+    // The parent drives mute/volume; it cannot postMessage the nested YouTube
+    // frame directly across two origins, so relay its commands here.
+    window.addEventListener("message", function (ev) {
+      if (ev.origin !== PARENT_ORIGIN) return;
+      var msg = ev.data;
+      if (!msg || msg.source !== "jms-yt-parent" || !player) return;
+      // Command names mirror the YouTube IFrame API so the parent can relay the
+      // calls it already makes for a direct embed without a translation table.
+      var ALLOWED = ["mute", "unMute", "setVolume", "playVideo", "pauseVideo", "stopVideo"];
+      if (ALLOWED.indexOf(msg.command) < 0) return;
+      try {
+        var args = Array.isArray(msg.args) ? msg.args : [];
+        player[msg.command].apply(player, args);
+      } catch (e) {}
+    });
+  };
+})();
+</script>
+</body>
+</html>

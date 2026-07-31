@@ -173,12 +173,16 @@ export function normalizeManagedHomeSectionOrder(value = null, { nativeEntries }
     });
   }
 
-  DEFAULT_MANAGED_HOME_SECTION_ORDER.forEach(push);
+  // Must not be `forEach(push)`: forEach passes the index as the 2nd argument,
+  // which push() reads as `fromExplicit`, marking every default key after the
+  // first as user-ordered and short-circuiting every follower rule below.
+  DEFAULT_MANAGED_HOME_SECTION_ORDER.forEach((key) => push(key));
 
   ensureImplicitManagedFollowerOrder(out, explicit, "studioHubs", "libraryHubs");
   ensureImplicitManagedFollowerOrder(out, explicit, "tmdbTopMoviesRows", "tmdbTrailerRows");
   ensureImplicitManagedFollowerOrder(out, explicit, "recentRows", "continueRows");
   ensureImplicitManagedFollowerOrder(out, explicit, "continueRows", "nextUpRows");
+  ensureImplicitManagedFollowerOrder(out, explicit, "nextUpRows", "becauseYouWatched");
 
   return out;
 }

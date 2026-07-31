@@ -7,8 +7,13 @@ import {
   applyPreviewTrailerAudioToVideo,
   applyPreviewTrailerAudioToYouTubePlayer,
   getPreviewTrailerAudioState,
-  postPreviewTrailerAudioToYouTubeIframe
+  postPreviewTrailerAudioToYouTubeIframe,
+  shouldUseEmbedProxy,
+  toEmbedProxyUrl,
+  watchYouTubeEmbedStartup
 } from './utils.js';
+
+let __ytStartupWatch = null;
 import { getVideoQualityText } from './containerUtils.js';
 import { attachMiniPosterHover, openMiniPopoverFor } from "./studioHubsUtils.js";
 import { positionModalRelativeToDot, centerActiveDot } from "./navigation.js";
@@ -387,11 +392,33 @@ export async function updateModalContent(item, videoUrl, opts = {}) {
       config: cfg,
       soundOn: (isMobileAppEnv() || !isTouchRuntime()) && !!modalState._soundOn
     });
-    iframe.src = ensureYTParams(trailerUrl, {
+    const ytSrc = ensureYTParams(trailerUrl, {
       autoplay: true,
       muteInitial: audioState.muted,
       enableJsApi: CAN_USE_YT_API
     });
+    // Marks the wrapper page so the audio/command helpers relay through it
+    // instead of speaking YouTube's postMessage protocol to our own document.
+    const isProxied = /\/yt-embed\.html(\?|$)/.test(ytSrc);
+    iframe.dataset.jmsProxied = isProxied ? '1' : '0';
+    iframe.src = ytSrc;
+
+    // Failure-driven fallback: if the direct embed never reaches a playing state
+    // (Error 153 renders inside a frame that loaded fine), switch this preview to
+    // the same-origin wrapper and remember it for the rest of the session.
+    __ytStartupWatch?.cancel?.();
+    __ytStartupWatch = null;
+    if (!isProxied) {
+      __ytStartupWatch = watchYouTubeEmbedStartup(iframe, {
+        onFailure: () => {
+          const next = toEmbedProxyUrl(iframe.src);
+          if (next === iframe.src || !iframe.isConnected) return;
+          destroyYTPlayerForIframe(iframe);
+          iframe.dataset.jmsProxied = '1';
+          iframe.src = next;
+        }
+      });
+    }
     iframe.__wrapper && (iframe.__wrapper.style.display = 'block');
     iframe.style.display = 'block';
     showYTFirstTouchShield(iframe, 380);
@@ -1672,6 +1699,9 @@ function getYTPlayerForIframe(iframe) {
    if (typeof YT === 'undefined' || typeof YT.Player !== 'function') {
      return null;
    }
+   // A proxied embed hosts its own player; attaching one here would bind to our
+   // wrapper document rather than the YouTube frame inside it.
+   if (iframe?.dataset?.jmsProxied === '1') return null;
    try {
      p = new YT.Player(iframe, {
        host: 'https://www.youtube-nocookie.com',
@@ -1702,6 +1732,7 @@ function getYTPlayerForIframe(iframe) {
  },
          onStateChange: (event) => {
    if (event.data === YT.PlayerState.PLAYING) {
+     __ytStartupWatch?.confirmPlaying?.();
      try { modalState.videoModal?.hideBackdrop?.(); } catch {}
             const root = iframe?.closest?.('.video-preview-modal') || document.querySelector('.video-preview-modal');
             const btn = root?.querySelector?.('.preview-volume-button');
@@ -1872,7 +1903,11 @@ function ensureYTParams(url, { autoplay = true, muteInitial = true, enableJsApi 
 
     applyYTOriginParams(u.searchParams, enableJsApi);
 
-    return u.toString();
+    // An iOS WebView cannot load a YouTube embed directly (Error 153); route it
+    // through the same-origin wrapper page instead.
+    return shouldUseEmbedProxy()
+      ? toEmbedProxyUrl(u.toString())
+      : u.toString();
   } catch {
     return url;
   }
@@ -2045,6 +2080,10 @@ function getOrCreateTrailerIframe(modal = modalState.videoModal) {
 
 function destroyYTPlayerForIframe(iframe) {
   if (!iframe) return;
+  // Safe here: showYT() calls this before arming a new watch, so this only ever
+  // clears a watch belonging to a preview that is going away.
+  try { __ytStartupWatch?.cancel?.(); } catch {}
+  __ytStartupWatch = null;
   const p = _ytPlayers.get(iframe);
   if (p) {
     try { p.pauseVideo?.(); } catch {}
@@ -2086,6 +2125,8 @@ function installYTPlayer(iframe) {
   let p = _ytPlayers.get(iframe);
   if (p) return p;
   if (typeof YT === 'undefined' || typeof YT.Player !== 'function') return null;
+  // See createYTPlayerForIframe: a proxied embed already owns its player.
+  if (iframe?.dataset?.jmsProxied === '1') return null;
 
   function bindFirstInteractionUnmute() {
     const btn = (iframe.closest('.video-preview-modal') || document).querySelector?.('.preview-volume-button');
@@ -2153,6 +2194,7 @@ function installYTPlayer(iframe) {
         },
         onStateChange: (event) => {
           if (event.data === YT.PlayerState.PLAYING) {
+            __ytStartupWatch?.confirmPlaying?.();
             try { modalState.videoModal?.hideBackdrop?.(); } catch {}
             const root = iframe?.closest?.('.video-preview-modal') || document.querySelector('.video-preview-modal');
             const btn  = root?.querySelector?.('.preview-volume-button');

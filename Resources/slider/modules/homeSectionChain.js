@@ -1101,7 +1101,14 @@ async function runManagedRenderTask(task, generation = MANAGED_RENDER_QUEUE.gene
 }
 
 async function drainManagedRenderQueue() {
-  if (MANAGED_RENDER_QUEUE.draining) return;
+  if (MANAGED_RENDER_QUEUE.draining) {
+    // Clear the flag the enqueuer set before scheduling us. Leaving it true
+    // stranded the queue: the in-flight loop's finally-block only reschedules
+    // when drainScheduled is false, so a task enqueued mid-drain could sit in
+    // MANAGED_RENDER_QUEUE.tasks forever with nothing left to drain it.
+    MANAGED_RENDER_QUEUE.drainScheduled = false;
+    return;
+  }
   const generation = MANAGED_RENDER_QUEUE.generation;
   MANAGED_RENDER_QUEUE.draining = true;
   MANAGED_RENDER_QUEUE.drainScheduled = false;

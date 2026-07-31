@@ -227,6 +227,151 @@ function readPercentConfigValue(sourceConfig, key, fallback = 50) {
   return Math.max(0, Math.min(100, parsed));
 }
 
+export function isMobileLikeDevice() {
+  try {
+    return (window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches === true)
+      || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "")
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  } catch {
+    return false;
+  }
+}
+
+// iOS WKWebView — which is what the Jellyfin iOS app and a home-screen PWA run
+// in — does not send a Referer for a cross-origin iframe subresource, so since
+// late 2025 YouTube answers those embeds with "Error 153 - Video player
+// configuration error". Adding referrerpolicy, a referrer meta, or an origin
+// param does not fix it; the embed has to come from a same-origin document.
+export function isWebViewEmbedRestricted() {
+  try {
+    const ua = navigator.userAgent || "";
+    const isIOS = /iPhone|iPad|iPod/i.test(ua)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (!isIOS) return false;
+    if (window.NativeShell) return true;
+    if (navigator.standalone === true) return true;
+    // Real Safari always sends a Safari/ token; an in-app WKWebView does not.
+    return /AppleWebKit/i.test(ua) && !/Safari\//i.test(ua);
+  } catch {
+    return false;
+  }
+}
+
+const EMBED_PROXY_SESSION_KEY = "jms:yt-embed-proxy-required";
+const EMBED_STARTUP_TIMEOUT_MS = 7000;
+
+export function isEmbedProxyRequired() {
+  try { return sessionStorage.getItem(EMBED_PROXY_SESSION_KEY) === "1"; } catch { return false; }
+}
+
+export function markEmbedProxyRequired(reason = "") {
+  if (isEmbedProxyRequired()) return;
+  try { sessionStorage.setItem(EMBED_PROXY_SESSION_KEY, "1"); } catch {}
+  console.warn("[JMSFusion] Direct YouTube embed did not start; routing through the same-origin proxy for the rest of this session:", reason);
+}
+
+// The UA heuristic is only a fast path. Once a direct embed has actually failed,
+// this is what keeps every later trailer on the proxy — so the fix does not
+// depend on correctly guessing which WebView we are in.
+export function shouldUseEmbedProxy() {
+  return isEmbedProxyRequired() || isWebViewEmbedRestricted();
+}
+
+/**
+ * Watches a direct embed's startup. Error 153 renders *inside* a player that
+ * loaded fine, so `onload` proves nothing — only reaching a playing state does.
+ * Callers that own a YT.Player should also call confirmPlaying() from their own
+ * onStateChange; the postMessage listener covers the rest.
+ */
+export function watchYouTubeEmbedStartup(iframe, { timeoutMs = EMBED_STARTUP_TIMEOUT_MS, onFailure } = {}) {
+  // Only armed where Error 153 actually happens. Detection relies on YouTube's
+  // postMessage state events, which measurably do not always arrive even for a
+  // healthy embed — so on desktop, where the direct path is known to work, a
+  // false timeout would move everyone onto the proxy for nothing. Restricting
+  // the watchdog to touch devices bounds the blast radius of that flakiness to
+  // exactly the platform that is already broken without it.
+  if (!isMobileLikeDevice()) return { confirmPlaying() {}, cancel() {} };
+
+  // Without enablejsapi the player never reports state, so a watchdog could only
+  // ever produce a false positive. Leave those embeds alone.
+  const hasJsApi = (() => {
+    try { return new URL(iframe?.src || "", window.location.href).searchParams.get("enablejsapi") === "1"; }
+    catch { return false; }
+  })();
+  if (!hasJsApi) return { confirmPlaying() {}, cancel() {} };
+
+  let settled = false;
+  let timer = null;
+  let handshakeTimers = [];
+
+  const onMessage = (event) => {
+    if (!/^https?:\/\/(www\.)?youtube(-nocookie)?\.com$/i.test(event.origin || "")) return;
+    if (event.source !== iframe?.contentWindow) return;
+    let data = event.data;
+    if (typeof data === "string") {
+      try { data = JSON.parse(data); } catch { return; }
+    }
+    const state = data?.info?.playerState ?? (data?.event === "onStateChange" ? data.info : null);
+    if (state === 1 || state === 3) stop();   // 1 = playing, 3 = buffering
+  };
+
+  function stop() {
+    settled = true;
+    if (timer) { clearTimeout(timer); timer = null; }
+    handshakeTimers.forEach((id) => clearTimeout(id));
+    handshakeTimers = [];
+    try { window.removeEventListener("message", onMessage); } catch {}
+  }
+
+  window.addEventListener("message", onMessage);
+
+  // YouTube stays silent until someone opens the channel. YT.Player normally
+  // does this, but it is not always created (auto-preview off, API blocked), and
+  // without the handshake a perfectly working embed would look like a failure.
+  const openChannel = () => {
+    if (settled) return;
+    try {
+      iframe?.contentWindow?.postMessage(
+        JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
+        "*"
+      );
+    } catch {}
+  };
+  handshakeTimers = [400, 1200, 2500].map((ms) => setTimeout(openChannel, ms));
+
+  timer = setTimeout(() => {
+    if (settled) return;
+    stop();
+    markEmbedProxyRequired(`no playback within ${timeoutMs}ms`);
+    try { onFailure?.(); } catch {}
+  }, timeoutMs);
+
+  return { confirmPlaying: stop, cancel: stop };
+}
+
+export function toEmbedProxyUrl(embedUrl) {
+  try {
+    const parsed = new URL(embedUrl, window.location.href);
+    if (!/(^|\.)youtube(-nocookie)?\.com$/i.test(parsed.hostname)) return embedUrl;
+
+    const id = parsed.pathname.split("/").filter(Boolean)[1] || "";
+    if (!/^[A-Za-z0-9_-]{6,20}$/.test(id)) return embedUrl;
+
+    const params = new URLSearchParams({ v: id });
+    for (const key of ["mute", "autoplay", "controls", "start"]) {
+      const value = parsed.searchParams.get(key);
+      if (value !== null) params.set(key, value);
+    }
+    // Resolved from this module's own URL so it inherits both the Jellyfin base
+    // path and the versioned `slider~v-{version}` segment the graph loaded from.
+    const proxy = new URL("../yt-embed.html", import.meta.url);
+    proxy.search = params.toString();
+    return proxy.href;
+  } catch {
+    return embedUrl;
+  }
+}
+
 export function getPreviewTrailerAudioState({
   config: sourceConfig = null,
   soundOn = true,
@@ -289,15 +434,28 @@ export function applyPreviewTrailerAudioToYouTubePlayer(player, opts = {}) {
   return audioState;
 }
 
+export function postYouTubeIframeCommand(iframe, func, args = []) {
+  try {
+    // A proxied embed is our own page, so it takes a structured relay message
+    // scoped to this origin instead of YouTube's stringified command protocol.
+    if (iframe?.dataset?.jmsProxied === "1") {
+      iframe?.contentWindow?.postMessage(
+        { source: "jms-yt-parent", command: func, args },
+        window.location.origin
+      );
+      return;
+    }
+    iframe?.contentWindow?.postMessage(
+      JSON.stringify({ event: "command", func, args }),
+      "*"
+    );
+  } catch {}
+}
+
 export function postPreviewTrailerAudioToYouTubeIframe(iframe, opts = {}) {
   const audioState = getPreviewTrailerAudioState(opts);
   try {
-    const post = (func, args = []) => {
-      iframe?.contentWindow?.postMessage(
-        JSON.stringify({ event: "command", func, args }),
-        "*"
-      );
-    };
+    const post = (func, args = []) => postYouTubeIframeCommand(iframe, func, args);
     if (audioState.muted) {
       post("mute");
     } else {
@@ -825,6 +983,8 @@ function clearPreviewPlaybackFlag() {
 }
 
   let ytIframe = null;
+  let ytProxyListener = null;
+  let ytStartupWatch = null;
   let playingKind = null;
   let isMouseOver = false;
   let latestHoverId = 0;
@@ -1135,12 +1295,7 @@ function clearPreviewPlaybackFlag() {
   }
 
   function postYoutubeCommand(func, args = []) {
-    try {
-      ytIframe?.contentWindow?.postMessage(
-        JSON.stringify({ event: "command", func, args }),
-        "*"
-      );
-    } catch {}
+    postYouTubeIframeCommand(ytIframe, func, args);
   }
 
   function getCurrentPreviewMuted() {
@@ -1495,6 +1650,9 @@ function clearPreviewPlaybackFlag() {
 
   function installSliderYTPlayer() {
     if (!ytIframe || !autoPreviewActive || !canUseYTApiPostMessage) return;
+    // A proxied embed hosts its own YT.Player; attaching a second one here
+    // would target our wrapper document instead of the player.
+    if (ytIframe.dataset.jmsProxied === "1") return;
     ensureSliderYTAPI().then((ready) => {
       if (!ready || !ytIframe || !autoPreviewActive) return;
       try {
@@ -1532,6 +1690,9 @@ function clearPreviewPlaybackFlag() {
                 autoTrailerPaused = true;
                 syncAutoToggleButton();
               } else if (event.data === YT.PlayerState.PLAYING) {
+                // Most reliable proof the direct embed works; stops the startup
+                // watchdog from falling back to the proxy unnecessarily.
+                ytStartupWatch?.confirmPlaying?.();
                 if (autoTrailerSuspended || autoTrailerUserPaused || !canResumeAutoTrailerPlayback()) {
                   setCurrentAutoTrailerPaused(true);
                   return;
@@ -1547,14 +1708,8 @@ function clearPreviewPlaybackFlag() {
   }
 
   const stopYoutube = (iframe) => {
-    try {
-      if (!canUseYTApiPostMessage) return;
-      if (!iframe) return;
-      iframe.contentWindow?.postMessage(
-        JSON.stringify({ event: "command", func: "stopVideo", args: [] }),
-        "*"
-      );
-    } catch {}
+    if (!canUseYTApiPostMessage || !iframe) return;
+    postYouTubeIframeCommand(iframe, "stopVideo", []);
   };
 
   const hardStopVideo = ({ immediate = false } = {}) => {
@@ -1594,6 +1749,14 @@ function clearPreviewPlaybackFlag() {
     if (ytPlayer) {
       try { ytPlayer.stopVideo?.(); ytPlayer.destroy?.(); } catch {}
       ytPlayer = null;
+    }
+    if (ytStartupWatch) {
+      try { ytStartupWatch.cancel(); } catch {}
+      ytStartupWatch = null;
+    }
+    if (ytProxyListener) {
+      try { window.removeEventListener("message", ytProxyListener); } catch {}
+      ytProxyListener = null;
     }
     if (ytIframe) {
       try { stopYoutube(ytIframe); } catch {}
@@ -1714,9 +1877,16 @@ function clearPreviewPlaybackFlag() {
     let url = getYoutubeEmbedUrl(trailer.Url);
     const isYoutubeEmbed = /youtube(?:-nocookie)?\.com\/embed\//i.test(String(url || ""));
     if (onlyYouTube && !isYoutubeEmbed) return false;
-    const audioState = getPreviewTrailerAudioState({ config });
+    // iOS blocks unmuted autoplay, so the embed never starts unless it opens
+    // muted; the volume button and postMessage path can unmute afterwards.
+    const mutedByDevice = isMobileLikeDevice();
+    const audioState = getPreviewTrailerAudioState({ config, mutedByDevice });
     runtimePreviewVolumePercent = audioState.effectivePercent;
-    url = setYouTubeUrlPreviewAudio(url, { config });
+    url = setYouTubeUrlPreviewAudio(url, { config, mutedByDevice });
+    // In an iOS WebView a direct embed answers with Error 153, so route it
+    // through a same-origin wrapper page that YouTube can attribute.
+    const useProxy = isYoutubeEmbed && shouldUseEmbedProxy();
+    if (useProxy) url = toEmbedProxyUrl(url);
     if (!isValidUrl(url) || !isActiveSlide()) return false;
 
     hardStopVideo({ immediate: true });
@@ -1726,8 +1896,7 @@ function clearPreviewPlaybackFlag() {
       ytIframe.dataset.jmsPreview = "1";
       ytIframe.dataset.jmsIgnorePauseOverlay = "1";
       ytIframe.allow = "autoplay; encrypted-media; clipboard-write; accelerometer; gyroscope; picture-in-picture";
-      ytIframe.referrerPolicy = "origin-when-cross-origin";
-      "autoplay; encrypted-media; clipboard-write; accelerometer; gyroscope; picture-in-picture";
+      ytIframe.referrerPolicy = "strict-origin-when-cross-origin";
       ytIframe.setAttribute("playsinline", "");
       ytIframe.allowFullscreen = true;
       Object.assign(ytIframe.style, {
@@ -1745,27 +1914,83 @@ function clearPreviewPlaybackFlag() {
     }
 
     if (!isActiveSlide()) return false;
-    clearYtRevealTimer();
-    ytIframe.onload = () => {
+
+    let proxied = useProxy;
+    ytIframe.dataset.jmsProxied = proxied ? "1" : "0";
+
+    // Registered even for a direct embed: it can fall back to the proxy part-way
+    // through, and the listener has to already be in place when it does.
+    if (!ytProxyListener) {
+      ytProxyListener = (event) => {
+        if (event.origin !== window.location.origin) return;
+        const msg = event.data;
+        if (!msg || msg.source !== "jms-yt-embed") return;
+        if (!ytIframe || event.source !== ytIframe.contentWindow) return;
+
+        if (msg.type === "playing") {
+          clearYtRevealTimer();
+          if (!shouldKeepPreviewAlive(hoverId)) return;
+          hideBackdrop();
+        } else if (msg.type === "failed") {
+          clearYtRevealTimer();
+          console.warn("[JMSFusion] YouTube embed unavailable in this WebView:", msg.detail);
+          hardStopIframe();
+          // Leave the slide as if no trailer existed: backdrop back, and no
+          // volume or auto-trailer controls hovering over a dead player.
+          playingKind = null;
+          setPreviewVolumeVisible(false);
+          setAutoToggleVisible(false);
+          showBackdrop();
+        } else if (msg.type === "ended") {
+          markAutoTrailerEnded({ advance: true });
+        }
+      };
+      window.addEventListener("message", ytProxyListener);
+    }
+
+    const switchToProxy = () => {
+      if (proxied || !ytIframe || !shouldKeepPreviewAlive(hoverId)) return;
+      const next = toEmbedProxyUrl(ytIframe.src);
+      if (next === ytIframe.src) return;
+      proxied = true;
+      ytStartupWatch = null;
+      // Put the backdrop back first so the dead player is not left on screen
+      // while the wrapper loads; the wrapper's "playing" message re-reveals it.
       clearYtRevealTimer();
-      if (!shouldKeepPreviewAlive(hoverId)) return;
-      postPreviewTrailerAudioToYouTubeIframe(ytIframe, { config });
-      if (autoTrailerSuspended) {
-        postYoutubeCommand("pauseVideo");
-        return;
-      }
-      hideBackdrop();
+      showBackdrop();
+      ytIframe.dataset.jmsProxied = "1";
+      ytIframe.src = next;
     };
-    ytRevealTimer = setTimeout(() => {
-      ytRevealTimer = null;
+
+    const revealDirect = () => {
+      // A proxied embed reveals itself from the wrapper's "playing" message: the
+      // 153 error card renders *inside* a player that loaded fine, so revealing
+      // on a timer would just swap the backdrop for the error.
+      if (!proxied) hideBackdrop();
+    };
+
+    const onFrameReady = () => {
       if (!shouldKeepPreviewAlive(hoverId)) return;
-      postPreviewTrailerAudioToYouTubeIframe(ytIframe, { config });
+      postPreviewTrailerAudioToYouTubeIframe(ytIframe, { config, mutedByDevice });
       if (autoTrailerSuspended) {
         postYoutubeCommand("pauseVideo");
         return;
       }
-      hideBackdrop();
-    }, 900);
+      revealDirect();
+    };
+
+    clearYtRevealTimer();
+    ytIframe.onload = () => { clearYtRevealTimer(); onFrameReady(); };
+    ytRevealTimer = setTimeout(() => { ytRevealTimer = null; onFrameReady(); }, 900);
+
+    ytStartupWatch?.cancel?.();
+    ytStartupWatch = null;
+    if (isYoutubeEmbed && !proxied) {
+      // Failure-driven fallback. The UA heuristic above is only a fast path; if a
+      // direct embed never reaches a playing state we switch this slide to the
+      // proxy and remember it, so the rest of the session skips the dead path.
+      ytStartupWatch = watchYouTubeEmbedStartup(ytIframe, { onFailure: switchToProxy });
+    }
     ytIframe.style.display = "block";
     ytIframe.src = url;
     showDetailsOverlay();
