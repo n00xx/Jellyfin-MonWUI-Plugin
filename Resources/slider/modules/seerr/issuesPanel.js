@@ -640,6 +640,10 @@ export async function ensureSerrIssuesTab({ bindNotifTabButton } = {}) {
 
   bindPane(pane);
   render();
+
+  if (!document.querySelector("#jfNotifModal .jf-notif-tab.active")) {
+    document.querySelector("#jfNotifModal .jf-notif-tab")?.click?.();
+  }
 }
 
 export function refreshSerrIssues(options = {}) {

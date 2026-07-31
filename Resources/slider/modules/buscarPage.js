@@ -369,7 +369,7 @@ function renderEntries(grid, entries) {
   const frag = document.createDocumentFragment();
   entries.forEach(({ result, localItem }) => {
     if (localItem) {
-      const card = createRecommendationCard(localItem, __serverId, {});
+      const card = createRecommendationCard(localItem, __serverId, { showRating: false });
       frag.appendChild(decorateAvailableCard(card));
     } else {
       frag.appendChild(createRequestCard(result));

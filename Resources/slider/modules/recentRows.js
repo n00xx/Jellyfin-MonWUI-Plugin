@@ -2825,7 +2825,8 @@ export function createRecommendationCard(item, serverId, {
   showProgress = false,
   variant = "default",
   rank = null,
-  disableHoverPreview = false
+  disableHoverPreview = false,
+  showRating = true
 } = {}) {
   const { itemId, itemName } = primeItemIdentity(item);
   const card = document.createElement("div");
@@ -2871,7 +2872,7 @@ export function createRecommendationCard(item, serverId, {
     `
     : "";
 
-  const community = Number.isFinite(posterSource.CommunityRating)
+  const community = (showRating && Number.isFinite(posterSource.CommunityRating))
     ? `<div class="community-rating" title="${escapeHtml(config.languageLabels.communityRating || "Community Rating")}">⭐ ${posterSource.CommunityRating.toFixed(1)}</div>`
     : "";
   const top10RankHtml = (isTop10 && !isTrailerVariant && Number.isFinite(rank))

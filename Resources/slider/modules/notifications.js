@@ -698,24 +698,11 @@ function ensureUI() {
           </div>
         </div>
         <div class="jf-notif-tabs">
-          <button class="jf-notif-tab active" data-tab="new">${liveConfig.languageLabels.newAddedTab || "Yeni Eklenenler"}</button>
-          ${notifState._systemAllowed ? `<button class="jf-notif-tab" data-tab="system">${liveConfig.languageLabels.systemNotifications || "Sistem Bildirimleri"}</button>` : ""}
+          ${notifState._systemAllowed ? `<button class="jf-notif-tab active" data-tab="system">${liveConfig.languageLabels.systemNotifications || "Sistem Bildirimleri"}</button>` : ""}
         </div>
         <div class="jf-notif-content">
-          <div class="jf-notif-tab-content" data-tab="new">
-            <div class="jf-notif-section">
-              <div class="jf-notif-subtitle">${liveConfig.languageLabels.latestNotifications}</div>
-              <ul class="jf-notif-list" id="jfNotifList"></ul>
-            </div>
-            ${liveConfig.enableRenderResume ? `
-              <div class="jf-notif-section watching">
-                <div class="jf-notif-subtitle">${liveConfig.languageLabels.unfinishedWatching}</div>
-                <div class="jf-resume-list" id="jfResumeList"></div>
-              </div>
-            ` : ''}
-          </div>
           ${notifState._systemAllowed ? `
-          <div class="jf-notif-tab-content" data-tab="system" style="display:none;">
+          <div class="jf-notif-tab-content" data-tab="system">
             <ul class="jf-activity-list" id="jfActivityList"></ul>
           </div>` : ``}
         </div>
@@ -764,7 +751,13 @@ function ensureUI() {
 ensureSystemTabPresence();
  syncSerrNotificationsIntegration();
  void ensureCastTabPresence();
+ activateFirstTabIfNoneActive();
  }
+
+function activateFirstTabIfNoneActive() {
+  if (document.querySelector("#jfNotifModal .jf-notif-tab.active")) return;
+  document.querySelector("#jfNotifModal .jf-notif-tab")?.click?.();
+}
 
 function cleanupCastTabMount() {
   try {
@@ -773,29 +766,34 @@ function cleanupCastTabMount() {
   __castTabMount = null;
 }
 
-function activateNotifTab(tabName = "new") {
+function firstNotifTabName() {
+  return document.querySelector("#jfNotifModal .jf-notif-tab")?.getAttribute("data-tab") || "";
+}
+
+function activateNotifTab(tabName) {
+  const resolvedTab = tabName || firstNotifTabName();
   document.querySelectorAll(".jf-notif-tab").forEach((button) => {
-    button.classList.toggle("active", button.getAttribute("data-tab") === tabName);
+    button.classList.toggle("active", button.getAttribute("data-tab") === resolvedTab);
   });
 
   document.querySelectorAll(".jf-notif-tab-content").forEach((content) => {
-    content.style.display = (content.getAttribute("data-tab") === tabName) ? "" : "none";
+    content.style.display = (content.getAttribute("data-tab") === resolvedTab) ? "" : "none";
   });
 
-  if (tabName === "cast") {
+  if (resolvedTab === "cast") {
     void mountCastTabPanel();
   } else {
     cleanupCastTabMount();
   }
 
-  if (tabName === "serr") {
+  if (resolvedTab === "serr") {
     if (isSerrArrIntegrationEnabled()) {
       markSerrNotificationsSeen();
       void refreshSerrNotifications({ render: true, includeDownloads: true }).then(() => markSerrNotificationsSeen());
     }
   }
 
-  if (tabName === "issues" && isSerrArrIntegrationEnabled()) {
+  if (resolvedTab === "issues" && isSerrArrIntegrationEnabled()) {
     void refreshSerrIssues({ render: true });
   }
 }
@@ -804,7 +802,7 @@ function bindNotifTabButton(tabBtn) {
   if (!tabBtn || tabBtn.__jmsNotifTabBound) return;
   tabBtn.__jmsNotifTabBound = true;
   tabBtn.addEventListener("click", () => {
-    activateNotifTab(tabBtn.getAttribute("data-tab") || "new");
+    activateNotifTab(tabBtn.getAttribute("data-tab"));
   });
 }
 
@@ -846,7 +844,7 @@ async function ensureCastTabPresence() {
       existingPane?.remove();
       cleanupCastTabMount();
       if (wasCastActive) {
-        activateNotifTab("new");
+        activateNotifTab();
       }
       return;
     }
@@ -868,6 +866,8 @@ async function ensureCastTabPresence() {
       pane.innerHTML = `<div class="jf-cast-panel-host" id="jfCastPanelHost"></div>`;
       contentHost.appendChild(pane);
     }
+
+    activateFirstTabIfNoneActive();
 
     if (document.querySelector('.jf-notif-tab.active[data-tab="cast"]')) {
       void mountCastTabPanel();
@@ -899,33 +899,6 @@ function ensureSystemTabPresence() {
     pane.innerHTML = `<ul class="jf-activity-list" id="jfActivityList"></ul>`;
     contentHost.appendChild(pane);
     bindNotifTabButton(btn);
-  }
-}
-
-function syncResumeSectionVisibility() {
-  const liveConfig = getLiveConfig();
-  const newTab = document.querySelector('#jfNotifModal .jf-notif-tab-content[data-tab="new"]');
-  if (!newTab) return;
-
-  let section = newTab.querySelector('.jf-notif-section.watching');
-  if (liveConfig.enableRenderResume === false) {
-    section?.remove();
-    return;
-  }
-
-  if (!section) {
-    section = document.createElement("div");
-    section.className = "jf-notif-section watching";
-    section.innerHTML = `
-      <div class="jf-notif-subtitle"></div>
-      <div class="jf-resume-list" id="jfResumeList"></div>
-    `;
-    newTab.appendChild(section);
-  }
-
-  const titleEl = section.querySelector(".jf-notif-subtitle");
-  if (titleEl) {
-    titleEl.textContent = liveConfig.languageLabels.unfinishedWatching || "İzlemeye Devam Et";
   }
 }
 
@@ -1098,7 +1071,6 @@ function openModal() {
   clearHoverTimers();
   const m = document.querySelector("#jfNotifModal");
   if (!m) return;
-  syncResumeSectionVisibility();
   m.hidden = false;
   m.removeAttribute("aria-hidden");
   m.style.pointerEvents = "";

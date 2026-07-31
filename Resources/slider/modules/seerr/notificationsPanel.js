@@ -6,10 +6,8 @@ import {
   getSerrMovieDetails,
   getSerrTvDetails,
   listSerrRequests,
-  listSerrIssues,
   searchSerr,
   searchSerrCollections,
-  upgradeSerrRequest4K,
   withdrawSerrRequest
 } from "./api.js";
 import { getConfig } from "../config.js";
@@ -3200,6 +3198,10 @@ export function ensureSerrNotificationsTab({ bindNotifTabButton } = {}) {
 
   bindSerrManagerButtons(pane);
   bindSerrCalendarButtons(pane);
+
+  if (!document.querySelector("#jfNotifModal .jf-notif-tab.active")) {
+    document.querySelector("#jfNotifModal .jf-notif-tab")?.click?.();
+  }
 }
 
 export function renderSerrNotifications() {
@@ -3381,7 +3383,6 @@ async function refreshSerrRequestManager({ render = false, showError = render } 
       const data = await listSerrRequests({ includeHistory: true });
       managerRequests = normalizeManagerRequests(data?.requests);
       managerIsAdmin = data?.isAdmin === true;
-      await refreshManagerIssues();
     } catch (error) {
       managerRequests = [];
       managerIsAdmin = false;
@@ -4012,68 +4013,6 @@ async function requestManagerSearchResult(button, result) {
   }
 }
 
-// Reported problems live alongside the request history: the user files them from the details
-// modal, and this is where they check what was already reported. Read-only on purpose — acting on
-// an issue is a Jellyseerr-side workflow.
-let managerIssues = [];
-
-const ISSUE_TYPE_LABELS = {
-  1: ["serrIssueTypeVideo", "Video"],
-  2: ["serrIssueTypeAudio", "Audio"],
-  3: ["serrIssueTypeSubtitle", "Subtitles"],
-  4: ["serrIssueTypeOther", "Other"],
-};
-
-async function refreshManagerIssues() {
-  try {
-    const data = await listSerrIssues();
-    const raw = data?.issues;
-    // The controller passes Jellyseerr's payload through untouched, so accept both the bare array
-    // and the { results: [] } envelope it uses on paginated endpoints.
-    const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.results) ? raw.results : []);
-    managerIssues = data?.ok === false ? [] : list;
-  } catch {
-    managerIssues = [];
-  }
-}
-
-function renderManagerIssues() {
-  if (!managerIssues.length) return "";
-
-  const rows = managerIssues.slice(0, 20).map((issue) => {
-    const typeKey = ISSUE_TYPE_LABELS[Number(issue?.issueType)] || ISSUE_TYPE_LABELS[4];
-    const typeText = L(typeKey[0], typeKey[1]);
-    const title = text(
-      issue?.media?.title ||
-      issue?.media?.name ||
-      issue?.title ||
-      ""
-    );
-    const message = text(issue?.comments?.[0]?.message || issue?.message || "");
-    const status = Number(issue?.status) === 2
-      ? L("serrIssueResolved", "Resuelto")
-      : L("serrIssueOpen", "Abierto");
-
-    return `
-      <div class="monwui-serr-issue">
-        <div class="monwui-serr-issue-head">
-          <span class="monwui-serr-issue-type">${escapeHtml(typeText)}</span>
-          <span class="monwui-serr-issue-status">${escapeHtml(status)}</span>
-        </div>
-        ${title ? `<div class="monwui-serr-issue-title">${escapeHtml(title)}</div>` : ""}
-        ${message ? `<div class="monwui-serr-issue-message">${escapeHtml(message)}</div>` : ""}
-      </div>
-    `;
-  }).join("");
-
-  return `
-    <div class="monwui-serr-issues">
-      <div class="monwui-serr-issues-title">${escapeHtml(L("issuesSectionTitle", "Problemas reportados"))}</div>
-      ${rows}
-    </div>
-  `;
-}
-
 function renderSerrRequestManager() {
   ensureSerrProgressStyles();
   const modal = ensureSerrRequestsModal();
@@ -4082,7 +4021,6 @@ function renderSerrRequestManager() {
   const visibleRequests = managerVisibleRequests();
 
   body.innerHTML = `
-    ${renderManagerIssues()}
     ${renderManagerSearchShell()}
     ${managerRequests.length
       ? `
@@ -4102,9 +4040,6 @@ function renderSerrRequestManager() {
   });
   body.querySelectorAll("[data-serr-manager-decline]").forEach((btn) => {
     btn.addEventListener("click", () => runManagerAction(btn, () => declineSerrRequest(btn.getAttribute("data-serr-manager-decline"))));
-  });
-  body.querySelectorAll("[data-serr-manager-upgrade4k]").forEach((btn) => {
-    btn.addEventListener("click", () => runManagerAction(btn, () => upgradeSerrRequest4K(btn.getAttribute("data-serr-manager-upgrade4k"))));
   });
   body.querySelectorAll("[data-serr-manager-withdraw]").forEach((btn) => {
     btn.addEventListener("click", () => runManagerAction(btn, () => withdrawSerrRequest(btn.getAttribute("data-serr-manager-withdraw"))));
@@ -4129,17 +4064,11 @@ function renderManagerRequest(req, isAdmin) {
   const error = text(req?.Error || req?.error);
   const canApprove = isAdmin && (status === "pending" || status === "failed");
   const canDecline = isAdmin && (status === "pending" || status === "failed");
-  const canUpgrade4K = isAdmin && id && !requestIs4K(req) &&
-    status !== "completed" &&
-    status !== "available" &&
-    status !== "declined" &&
-    status !== "withdrawn";
   const canWithdraw = id && (
     (isAdmin && status !== "withdrawn" && status !== "completed" && status !== "available") ||
     (!isAdmin && status === "pending")
   );
   const detailsHtml = [
-    renderRequestInfoChip(L("serrRequestedBy", "İsteyen"), requestedBy),
     renderRequestInfoChip(L("created", "Oluşturuldu"), created),
     renderRequestInfoChip(L("updated", "Güncellendi"), updated),
     renderRequestInfoChip(L("serrStatusCompleted", "Tamamlandı"), completed),
@@ -4149,7 +4078,6 @@ function renderManagerRequest(req, isAdmin) {
   const actionsHtml = [
     canApprove ? `<button type="button" class="monwui-serr-mini-btn primary" data-serr-manager-approve="${escapeHtml(id)}"><i class="fas fa-check" aria-hidden="true"></i><span>${escapeHtml(L("serrApprove", "Onayla"))}</span></button>` : "",
     canDecline ? `<button type="button" class="monwui-serr-mini-btn" data-serr-manager-decline="${escapeHtml(id)}"><i class="fas fa-times" aria-hidden="true"></i><span>${escapeHtml(L("serrDecline", "Reddet"))}</span></button>` : "",
-    canUpgrade4K ? `<button type="button" class="monwui-serr-mini-btn" data-serr-manager-upgrade4k="${escapeHtml(id)}"><i class="fas fa-film" aria-hidden="true"></i><span>${escapeHtml(L("serrRequest4KButton", "4K İste"))}</span></button>` : "",
     canWithdraw ? `<button type="button" class="monwui-serr-mini-btn" data-serr-manager-withdraw="${escapeHtml(id)}"><i class="fas fa-undo" aria-hidden="true"></i><span>${escapeHtml(L("serrWithdraw", "Geri Çek"))}</span></button>` : ""
   ].filter(Boolean).join("");
   const detailsLabel = L("serrRequestDetails", "İstek Detayları");
@@ -4165,6 +4093,7 @@ function renderManagerRequest(req, isAdmin) {
             <span class="monwui-serr-state" data-serr-updated ${updated ? "" : "hidden"}>${escapeHtml(updated)}</span>
           </div>
           ${renderRequestProviderLinks(req, metadata)}
+          ${requestedBy ? `<div class="monwui-serr-state">${escapeHtml(L("serrRequestedBy", "İsteyen"))}: ${escapeHtml(requestedBy)}</div>` : ""}
           <div class="monwui-serr-request-name">${escapeHtml(title)}</div>
           <div class="monwui-serr-request-details-wrap">
             <button type="button" class="monwui-serr-request-details-toggle" aria-label="${escapeHtml(detailsLabel)}">
