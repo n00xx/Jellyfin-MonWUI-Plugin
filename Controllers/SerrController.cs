@@ -32,6 +32,7 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             WriteIndented = false
         };
         private const int MaxStoredRequests = 300;
+        private const int MaxStoredIssueOwners = 300;
         private const int MaxSyncPerListCall = 40;
         private const int MaxTitleLength = 180;
         private const int SerrListSyncCacheMs = 15_000;
@@ -339,6 +340,19 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             if (request?.ProblemSeason is int season && season > 0) body["problemSeason"] = season;
             if (request?.ProblemEpisode is int episode && episode > 0) body["problemEpisode"] = episode;
 
+            // Mirrors SubmitToSeerr's request attribution: without this, Jellyseerr always
+            // attributes the issue to whoever owns the shared admin API key, not the Jellyfin
+            // user who actually reported it (requires that user to already have a linked
+            // Jellyseerr account, same limitation as request submission).
+            if (cfg.SerrRequestAsJellyfinUser)
+            {
+                var mappedUserId = await ResolveSerrUserId(cfg, userCheck.UserId.ToString("D"), cancellationToken);
+                if (mappedUserId.HasValue)
+                {
+                    body["userId"] = mappedUserId.Value;
+                }
+            }
+
             var response = await SendSerrAsync(cfg, HttpMethod.Post, "/issue", body, cancellationToken);
             NoCache();
             if (!response.Ok)
@@ -346,7 +360,41 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
                 return StatusCode(response.StatusCode > 0 ? response.StatusCode : 502, new { ok = false, error = response.Error });
             }
 
+            // Local fallback for "my issues" so it works even when Jellyseerr couldn't attribute
+            // the issue to the real reporter above (no linked account, or the setting is off).
+            if (TryReadInt(response.Payload, "id", out var newIssueId))
+            {
+                RecordSerrIssueOwner(newIssueId, userCheck.UserId, userCheck.User?.Username ?? string.Empty);
+            }
+
             return Ok(new { ok = true, issue = response.Payload });
+        }
+
+        private static void RecordSerrIssueOwner(int issueId, Guid jellyfinUserId, string jellyfinUserName)
+        {
+            if (issueId <= 0 || jellyfinUserId == Guid.Empty) return;
+
+            lock (SyncRoot)
+            {
+                var plugin = JMSFusionPlugin.Instance;
+                if (plugin is null) return;
+
+                var cfg = plugin.Configuration;
+                cfg.SerrIssueOwners ??= new List<SerrIssueOwnerEntry>();
+                cfg.SerrIssueOwners.RemoveAll(entry => entry.IssueId == issueId);
+                cfg.SerrIssueOwners.Insert(0, new SerrIssueOwnerEntry
+                {
+                    IssueId = issueId,
+                    JellyfinUserId = jellyfinUserId.ToString("D"),
+                    JellyfinUserName = CleanText(jellyfinUserName, 80),
+                    CreatedAtUtc = NowMs()
+                });
+                if (cfg.SerrIssueOwners.Count > MaxStoredIssueOwners)
+                {
+                    cfg.SerrIssueOwners.RemoveRange(MaxStoredIssueOwners, cfg.SerrIssueOwners.Count - MaxStoredIssueOwners);
+                }
+                plugin.UpdateConfiguration(cfg);
+            }
         }
 
         [HttpGet("issues")]
@@ -377,7 +425,7 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             // one devtools request away. The envelope is flattened to a bare array at the same time
             // so callers stop having to handle both shapes.
             var issues = ReadSerrIssueRecords(response.Payload)
-                .Where(issue => isAdmin || IsSerrIssueAuthor(issue, userCheck.UserId))
+                .Where(issue => isAdmin || IsSerrIssueAuthor(issue, userCheck.UserId, cfg))
                 .ToList();
 
             return Ok(new { ok = true, issues, isAdmin });
@@ -406,7 +454,7 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
                 return StatusCode(response.StatusCode > 0 ? response.StatusCode : 502, new { ok = false, error = response.Error });
             }
 
-            if (!isAdmin && !IsSerrIssueAuthor(response.Payload, userCheck.UserId))
+            if (!isAdmin && !IsSerrIssueAuthor(response.Payload, userCheck.UserId, cfg))
             {
                 return StatusCode(403, new { ok = false, error = "This issue belongs to another user." });
             }
@@ -529,13 +577,26 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
         /// link path ("N" vs "D"), so both are folded to the same shape before comparing — a plain
         /// string compare would silently match nobody and hide every user's own reports.
         /// </summary>
-        private static bool IsSerrIssueAuthor(JsonElement issue, Guid userId)
+        private static bool IsSerrIssueAuthor(JsonElement issue, Guid userId, JMSFusionConfiguration cfg)
         {
             if (issue.ValueKind != JsonValueKind.Object || userId == Guid.Empty) return false;
-            if (!TryReadObject(issue, "createdBy", out var createdBy)) return false;
 
-            var raw = ReadStringAny(createdBy, "jellyfinUserId", "jellyfinUserID", "jellyfinId", "jellyfin_id");
-            return Guid.TryParse(raw, out var authorId) && authorId == userId;
+            if (TryReadObject(issue, "createdBy", out var createdBy))
+            {
+                var raw = ReadStringAny(createdBy, "jellyfinUserId", "jellyfinUserID", "jellyfinId", "jellyfin_id");
+                if (Guid.TryParse(raw, out var authorId) && authorId == userId) return true;
+            }
+
+            // Fallback for issues Jellyseerr attributed to a different account (typically the
+            // shared admin API key) because the reporting Jellyfin user has no linked Jellyseerr
+            // account: consult the local map recorded at creation time in CreateIssue.
+            if (cfg?.SerrIssueOwners is not null && TryReadInt(issue, "id", out var issueId))
+            {
+                var wanted = userId.ToString("D");
+                return cfg.SerrIssueOwners.Any(entry => entry.IssueId == issueId && Same(entry.JellyfinUserId, wanted));
+            }
+
+            return false;
         }
 
         [HttpGet("metadata/collection/search")]

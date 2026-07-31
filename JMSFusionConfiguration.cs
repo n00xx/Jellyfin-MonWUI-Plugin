@@ -185,6 +185,12 @@ namespace Jellyfin.Plugin.JMSFusion
         [JsonPropertyName("serrRequestsRevision")]
         public long SerrRequestsRevision { get; set; } = 0;
 
+        // Jellyseerr only knows the reporter of an issue when the API call resolves a linked
+        // Jellyseerr account for the Jellyfin user; when it can't, the issue is attributed to
+        // whoever owns the shared admin API key. This local map lets "my issues" work regardless.
+        [JsonPropertyName("serrIssueOwners")]
+        public List<SerrIssueOwnerEntry> SerrIssueOwners { get; set; } = new();
+
         [JsonPropertyName("enableArrIntegration")]
         public bool EnableArrIntegration { get; set; } = false;
 
@@ -304,6 +310,14 @@ namespace Jellyfin.Plugin.JMSFusion
         public int SeasonNumber { get; set; } = 0;
         public int EpisodeNumber { get; set; } = 0;
         public string Name { get; set; } = string.Empty;
+    }
+
+    public class SerrIssueOwnerEntry
+    {
+        public int IssueId { get; set; } = 0;
+        public string JellyfinUserId { get; set; } = string.Empty;
+        public string JellyfinUserName { get; set; } = string.Empty;
+        public long CreatedAtUtc { get; set; } = 0;
     }
 
     public class SharedRadioStationEntry

@@ -47,6 +47,11 @@ function ensureContainer() {
   el.className = 'notifications-container';
   el.setAttribute('role', 'status');
   el.setAttribute('aria-live', 'polite');
+  // Belt-and-suspenders on top of notificationsBase.css: an inline style always wins the
+  // cascade, so the toast can't be re-buried by a future overlay shipping a higher z-index
+  // than this, regardless of stylesheet load order.
+  el.style.position = 'fixed';
+  el.style.zIndex = '2000000';
   document.body.appendChild(el);
   el.addEventListener('click', (e) => {
     if (!currentEl) return;

@@ -2945,6 +2945,12 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
     const sliderCssEnabled = isSliderCssActive(cfg);
 
     syncCSS('/slider/src/fontawesome/all.min.css', 'jms-css-fontawesome', true);
+    // Always loaded, independent of loadCSS()'s player-theme bundles: the toast system
+    // (report-a-problem / request confirmations) needs to render correctly before either
+    // Settings or playback has ever run in the session, and needs a z-index that beats the
+    // Seerr modals (#monwuiSerrModal is 999999, its confirm dialog 1000001) even when they
+    // stay open after a successful request.
+    syncCSS('/slider/src/notificationsBase.css', 'jms-css-notifications-base', true);
     D.getElementById('jms-css-notifications')?.remove();
     syncCSS(getPauseOverlayCssHref(cfg), 'jms-css-pause', pauseFeatureCssEnabled);
     syncCSS('/slider/src/personalRecommendations.css', 'jms-css-recs', recommendationCssEnabled);
