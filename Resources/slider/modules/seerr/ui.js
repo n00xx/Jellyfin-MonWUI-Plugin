@@ -336,7 +336,7 @@ function shouldMarkRequestButtonRequested(result) {
   return !!result && result.cancelled !== true && result.openedSearch !== true && result.ok !== false;
 }
 
-function requestMatchesPayload(req, payload) {
+export function requestMatchesPayload(req, payload) {
   const reqType = text(req?.MediaType || req?.mediaType).toLowerCase();
   const payloadType = text(payload?.mediaType).toLowerCase();
   const reqId = Number(req?.MediaId || req?.mediaId || 0);
@@ -925,6 +925,7 @@ function renderSearchResults(host, results, options = {}) {
 
   host.innerHTML = "";
   const frag = document.createDocumentFragment();
+  const pendingRequestChecks = [];
   media.forEach((result) => {
     const mediaType = resultMediaType(result);
     const id = Number(result?.id);
@@ -946,9 +947,18 @@ function renderSearchResults(host, results, options = {}) {
       </div>
     `;
 
+    const requestButton = row.querySelector("[data-serr-result-request]");
+    if (mediaType !== "collection" && requestButton) {
+      pendingRequestChecks.push({
+        button: requestButton,
+        payload: { mediaType, mediaId: id, is4K: false, requestAllSeasons: mediaType === "tv", seasons: [] }
+      });
+    }
+
     const handleRequest = async (btn, is4K = false) => {
       const old = btn.innerHTML;
       let effectiveIs4K = is4K === true;
+      let completed = false;
       try {
         btn.disabled = true;
         if (mediaType === "collection") {
@@ -984,16 +994,22 @@ function renderSearchResults(host, results, options = {}) {
         if (mediaType === "movie" && shouldUseDirectArrMovieFallback(options.access) && shouldFallbackMovieToArr(response)) {
           const arrResult = await requestMovieFromArr({ __tmdbId: id, Name: title }, { tmdbId: id, title, is4K: payload.is4K === true });
           notify(arrStatusMessage(arrResult), "success");
+          markRequestButtonRequested(btn);
+          completed = true;
           try { window.dispatchEvent(new CustomEvent("monwui:serr-requests-changed")); } catch {}
           return;
         }
         notify(statusMessage(response), statusType(response));
+        markRequestButtonRequested(btn);
+        completed = true;
         try { window.dispatchEvent(new CustomEvent("monwui:serr-requests-changed")); } catch {}
       } catch (error) {
         if (mediaType === "movie" && shouldUseDirectArrMovieFallback(options.access) && !isJellyfinAlreadyAvailableError(error)) {
           try {
             const arrResult = await requestMovieFromArr({ __tmdbId: id, Name: title }, { tmdbId: id, title, is4K: effectiveIs4K });
             notify(arrStatusMessage(arrResult), "success");
+            markRequestButtonRequested(btn);
+            completed = true;
             try { window.dispatchEvent(new CustomEvent("monwui:serr-requests-changed")); } catch {}
             return;
           } catch (arrError) {
@@ -1003,16 +1019,31 @@ function renderSearchResults(host, results, options = {}) {
         }
         notify(requestErrorMessage(error), "error");
       } finally {
-        btn.disabled = false;
-        btn.innerHTML = old;
+        if (!completed) {
+          btn.disabled = false;
+          btn.innerHTML = old;
+        }
       }
     };
 
-    row.querySelector("[data-serr-result-request]")?.addEventListener("click", (event) => {
+    requestButton?.addEventListener("click", (event) => {
+      if (event.currentTarget.disabled) return;
       handleRequest(event.currentTarget, false).catch(() => {});
     });
 
     frag.appendChild(row);
   });
   host.appendChild(frag);
+
+  if (pendingRequestChecks.length) {
+    listSerrRequests({ includeDownloads: false }).then((data) => {
+      const requests = Array.isArray(data?.requests) ? data.requests : [];
+      if (!requests.length) return;
+      pendingRequestChecks.forEach(({ button, payload }) => {
+        if (button?.isConnected && !button.disabled && requests.some((req) => requestMatchesPayload(req, payload))) {
+          markRequestButtonRequested(button);
+        }
+      });
+    }).catch(() => {});
+  }
 }

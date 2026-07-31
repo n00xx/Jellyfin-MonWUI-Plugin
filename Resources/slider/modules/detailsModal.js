@@ -3052,6 +3052,15 @@ function startMusicLoad(root, musicItem, { signal } = {}) {
   })();
 }
 
+function revealMovieCollectionBlock(root) {
+  const title = root?.querySelector?.(".jmsdm-collection-title");
+  const wrap = root?.querySelector?.(".jmsdm-collection-wrap");
+  const recosTitle = root?.querySelector?.(".jmsdm-recos-title");
+  if (title) title.style.display = "";
+  if (wrap) wrap.style.display = "";
+  if (recosTitle) recosTitle.style.marginTop = "16px";
+}
+
 function startCollectionLoad(root, movieItem, { signal } = {}) {
   (async () => {
     try {
@@ -3063,10 +3072,11 @@ function startCollectionLoad(root, movieItem, { signal } = {}) {
       const box = await getBoxSetForMovieCached(movieItem.Id, { signal });
       if (!_open || signal?.aborted) return;
 
-      if (!box?.id) {
-        host.innerHTML = renderCollectionHtml({ title: "", items: [] });
-        return;
-      }
+      // No box set for this movie: the whole Collection block stays hidden (its default
+      // state from renderRightPanelHtml) instead of showing an empty "not found" state.
+      if (!box?.id) return;
+
+      revealMovieCollectionBlock(root);
 
       const cachedItemsRow = await CollectionCacheDB.getBoxsetItems(box.id).catch(() => null);
       const cachedOk = cachedItemsRow && cachedItemsRow.items?.length && !isStale(cachedItemsRow.updatedAt, TTL_BOXSET_ITEMS);
@@ -3299,9 +3309,9 @@ export async function openDetailsModal({ itemId, item: preloadedItem = null, det
   const isMusicAlbum = baseItem.Type === "MusicAlbum";
   const isAudio = baseItem.Type === "Audio";
   const isMusicType = isMusicAlbum || isAudio;
-  // Only Series/Season/Episode pages render an Episodes list in the right panel — that's the
-  // only case with enough content on the right to justify giving it the hero's freed-up width.
-  const showsEpisodesPanel = !isTrailerItem && !isMovie && !isBoxSet && !isMusicType;
+  // Series/Season/Episode pages (Episodes list) and Movie pages (Similar Content/Collection)
+  // both have enough content on the right to justify giving it the hero's freed-up width.
+  const usesWideRightPanel = !isTrailerItem && !isBoxSet && !isMusicType;
   const supportsLocalComments =
     !isVirtualTrailer &&
     detailsRuntime.showLocalComments &&
@@ -3567,8 +3577,21 @@ wireMiniCardDelegation();
         config.languageLabels.collection ||
         "Koleksiyon";
 
+      // Collection renders first when the movie belongs to one — startCollectionLoad() hides
+      // this whole block (title included) once it resolves and finds no box set for the item,
+      // since an empty "no collection" state ahead of Similar Content would be misleading.
       return `
-        <div class="jmsdm-section-title">${similarTitle}</div>
+        <div class="jmsdm-section-title jmsdm-collection-title" style="display:none;">
+          ${collectionLabel}
+        </div>
+        <div class="jmsdm-epwrap jmsdm-collection-wrap" style="display:none;">
+          <div class="jmsdm-collection-host">
+            <div class="jmsdm-skeleton" style="width:55%;height:12px;margin-top:6px;"></div>
+            <div class="jmsdm-skeleton" style="width:100%;height:86px;margin-top:10px;"></div>
+          </div>
+        </div>
+
+        <div class="jmsdm-section-title jmsdm-recos-title">${similarTitle}</div>
         <div class="jmsdm-epwrap jmsdm-recos-wrap">
           ${
             (recos?.items && recos.items.length)
@@ -3578,16 +3601,6 @@ wireMiniCardDelegation();
                 <div class="jmsdm-skeleton" style="width:100%;height:86px;margin-top:10px;"></div>
               `
           }
-        </div>
-
-        <div class="jmsdm-section-title" style="margin-top:16px;">
-          ${collectionLabel}
-        </div>
-        <div class="jmsdm-epwrap jmsdm-collection-wrap">
-          <div class="jmsdm-collection-host">
-            <div class="jmsdm-skeleton" style="width:55%;height:12px;margin-top:6px;"></div>
-            <div class="jmsdm-skeleton" style="width:100%;height:86px;margin-top:10px;"></div>
-          </div>
         </div>
       `;
     }
@@ -3777,7 +3790,7 @@ wireMiniCardDelegation();
   root.innerHTML = `
     <div class="jmsdm-backdrop" role="dialog" aria-modal="true" aria-label="${name}">
       <div class="jmsdm-card" tabindex="-1">
-        <div class="jmsdm-content${showsEpisodesPanel ? " jmsdm-content--wide-episodes" : ""}">
+        <div class="jmsdm-content${usesWideRightPanel ? " jmsdm-content--wide-right" : ""}">
           <div class="jmsdm-topbar">
             <button class="jmsdm-close" aria-label="${config.languageLabels.closeButton || "Kapat"}">✕</button>
           </div>

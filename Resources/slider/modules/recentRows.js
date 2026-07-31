@@ -2893,7 +2893,7 @@ export function createRecommendationCard(item, serverId, {
       </div>
     `
     : `
-      <div class="prc-top-badges">
+      <div class="prc-top-badges${community ? "" : " prc-top-badges--type-only"}">
         ${community}
         <div class="prc-type-badge">
           ${faIconHtml(typeIcon, "prc-type-icon")}

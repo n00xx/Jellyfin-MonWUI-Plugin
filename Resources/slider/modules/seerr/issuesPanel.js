@@ -571,13 +571,12 @@ async function refresh({ render: shouldRender = false } = {}) {
 }
 
 /**
- * An admin always has the tab, because "no issues right now" is itself the answer they came for.
- * A regular user only gets it once they have actually reported something — otherwise it is an
- * empty shelf explaining nothing.
+ * Always shown once the module is enabled and reachable — admins see every issue, regular users
+ * see only their own (server-scoped, see SerrController.ListIssues) plus renderList()'s empty
+ * state when they have not reported anything yet.
  */
 function shouldShowTab() {
-  if (!moduleEnabled() || !cachedSupported) return false;
-  return cachedIsAdmin || cachedIssues.length > 0;
+  return moduleEnabled() && cachedSupported;
 }
 
 export function removeSerrIssuesTab() {

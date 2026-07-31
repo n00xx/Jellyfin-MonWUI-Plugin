@@ -3,7 +3,7 @@ import { getConfig } from "./config.js";
 import { faIconHtml } from "./faIcons.js";
 import { createRecommendationCard } from "./recentRows.js";
 import { registerExplorerCloser } from "./genreExplorer.js";
-import { getSerrAccess, searchSerr, searchJellyfinByTmdbId, createSerrRequest } from "./seerr/api.js";
+import { getSerrAccess, searchSerr, searchJellyfinByTmdbId, createSerrRequest, listSerrRequests } from "./seerr/api.js";
 import { ensureSerrStyles } from "./seerr/styles.js";
 import {
   mergeSearchResults,
@@ -13,6 +13,7 @@ import {
   resultYear,
   notify,
   requestErrorMessage,
+  requestMatchesPayload,
 } from "./seerr/ui.js";
 
 /**
@@ -81,6 +82,9 @@ function ensureBuscarStyles() {
     }
     .buscar-badge--available { background: linear-gradient(135deg,#3ddc84,#1fae64); color: #06210f; }
     .buscar-badge--missing { background: linear-gradient(135deg,#b98bff,#7c3aed); color: #fff; }
+    .buscar-request-card--sent { cursor: default; }
+    .buscar-request-card--sent .buscar-request-poster { opacity: .55; }
+    .buscar-request-card--sent .buscar-badge--missing { background: rgba(255,255,255,.14); box-shadow: none; }
     .buscar-request-title {
       padding: 8px 2px 2px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,.92);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -221,6 +225,8 @@ async function confirmBuscarRequest(result) {
 }
 
 async function handleRequestClick(result, card) {
+  if (card.dataset.serrRequested === "1") return;
+
   const confirmed = await confirmBuscarRequest(result);
   if (!confirmed) return;
 
@@ -240,15 +246,20 @@ async function handleRequestClick(result, card) {
       ),
       "success"
     );
-    if (badge) badge.textContent = L("buscarRequestedBadge", "Solicitado");
-    card.classList.add("buscar-request-card--sent");
+    markCardAsRequested(card, badge);
   } catch (error) {
     notify(requestErrorMessage(error, L("buscarRequestFailedToast", "No se pudo enviar tu solicitud. Intenta de nuevo.")), "error");
     if (badge) badge.textContent = originalBadgeText;
   }
 }
 
-function createRequestCard(result) {
+function markCardAsRequested(card, badge = card.querySelector(".buscar-badge--missing")) {
+  if (badge) badge.textContent = L("buscarRequestedBadge", "Solicitado");
+  card.classList.add("buscar-request-card--sent");
+  card.dataset.serrRequested = "1";
+}
+
+function createRequestCard(result, activeRequests = []) {
   const card = document.createElement("div");
   card.className = "card personal-recs-card buscar-request-card";
   const poster = serrPosterUrl(result);
@@ -274,6 +285,14 @@ function createRequestCard(result) {
   card.addEventListener("click", () => {
     handleRequestClick(result, card).catch(() => {});
   });
+
+  // Layer 1 of the duplicate-request guard: pre-mark results that already have an active
+  // request before the user ever clicks. Layer 2 is the server's own FindBlockingDuplicate
+  // check on submit, kept as a safety net in case this list is stale.
+  const payload = buildRequestPayload(result);
+  if (activeRequests.some((req) => requestMatchesPayload(req, payload))) {
+    markCardAsRequested(card);
+  }
 
   return card;
 }
@@ -354,7 +373,12 @@ function releaseCards(grid) {
   });
 }
 
-function renderEntries(grid, entries) {
+async function fetchActiveSerrRequests() {
+  const data = await listSerrRequests({ includeDownloads: false }).catch(() => null);
+  return Array.isArray(data?.requests) ? data.requests : [];
+}
+
+async function renderEntries(grid, entries, token) {
   releaseCards(grid);
   grid.innerHTML = "";
   if (!entries.length) {
@@ -366,13 +390,17 @@ function renderEntries(grid, entries) {
     return;
   }
 
+  const needsRequestCheck = entries.some((entry) => !entry.localItem);
+  const activeRequests = needsRequestCheck ? await fetchActiveSerrRequests() : [];
+  if (token !== __queryToken) return;
+
   const frag = document.createDocumentFragment();
   entries.forEach(({ result, localItem }) => {
     if (localItem) {
       const card = createRecommendationCard(localItem, __serverId, { showRating: false });
       frag.appendChild(decorateAvailableCard(card));
     } else {
-      frag.appendChild(createRequestCard(result));
+      frag.appendChild(createRequestCard(result, activeRequests));
     }
   });
   grid.appendChild(frag);
@@ -420,13 +448,13 @@ async function runSearch(grid, query) {
 
     if (!merged.length) {
       if (token !== __queryToken) return;
-      renderEntries(grid, []);
+      renderEntries(grid, [], token);
       return;
     }
 
     const entries = await annotateWithLibraryMatches(merged);
     if (token !== __queryToken) return;
-    renderEntries(grid, entries);
+    renderEntries(grid, entries, token);
   } catch (error) {
     if (token !== __queryToken) return;
     setStatus(grid, error?.message || L("serrSearchFailed", "La búsqueda falló. Intenta de nuevo."));
