@@ -3683,15 +3683,18 @@ wireMiniCardDelegation();
             <span class="jmsdm-pagelabel">${page} / ${totalPages()}</span>
             <button class="jmsdm-pagebtn jmsdm-next" ${page >= totalPages() ? "disabled" : ""}>${config.languageLabels.nextPage || "Sonraki"}</button>
           </div>
+
+          <div class="jmsdm-toolbar-spacer"></div>
         </div>
       ` : (seriesId ? `
         <div class="jmsdm-toolbar">
-          <div></div>
+          <div class="jmsdm-toolbar-spacer"></div>
           <div class="jmsdm-pager">
             <button class="jmsdm-pagebtn jmsdm-prev" ${page <= 1 ? "disabled" : ""}>${config.languageLabels.prevPage || "Önceki"}</button>
             <span class="jmsdm-pagelabel">${page} / ${totalPages()}</span>
             <button class="jmsdm-pagebtn jmsdm-next" ${page >= totalPages() ? "disabled" : ""}>${config.languageLabels.nextPage || "Sonraki"}</button>
           </div>
+          <div class="jmsdm-toolbar-spacer"></div>
         </div>
       ` : "")}
 
