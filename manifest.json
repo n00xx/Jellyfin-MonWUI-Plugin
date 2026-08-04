@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.18",
+        "changelog": "v3.7.1.18 (custom fork)\n\nCorrige dos problemas que dejó la v3.7.1.17 en la barra de Episodios.\n\n- La v3.7.1.17 centró la paginación, pero para conseguir el espacio bajó el ancho mínimo del selector de temporada de 160 px a 88 px. Medido contra la hoja de estilos real, el cambio salía caro: en móviles (390-430 px) el selector se quedaba en 88 px y ocultaba entre 38 y 90 px de la etiqueta, así que \"Temporada 1\" se recortaba a \"Tempor...\" y el número de temporada — lo único que ese control necesita mostrar — desaparecía.\n- Además, a 1040 px y a 390 px la separación entre la paginación y el borde derecho del panel seguía siendo de 0 px, así que el problema original (la paginación pegada al botón X) no quedaba resuelto justo en esos anchos.\n\nEl selector recupera su mínimo original de 160 px, y por debajo de 767 px la barra se apila: el selector ocupa una fila y la paginación queda centrada en la suya. En móviles la paginación queda centrada exacta y sin recortes.\n\nMedido a 1920, 1512, 1440, 1366, 1280, 1180, 1100, 1040, 1024, 834, 768, 430, 390 y 320 px, frente a las reglas de la 3.7.1.17: texto oculto en el peor caso 90 px -> 18 px; separación mínima con la X 0 px -> 36 px, nunca vuelve a ser 0.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.18/JMSFusion-3.7.1.18-server.zip",
+        "checksum": "94dc305d2b28d16dedccf00c23714d38",
+        "timestamp": "2026-08-04T22:14:02.0000000Z"
+      },
+      {
         "version": "3.7.1.17",
         "changelog": "v3.7.1.17 (custom fork)\n\nLos controles de paginación de Episodios ahora salen centrados.\n\n- En la ficha de una serie, la barra de Episodios repartía sus elementos con espacio entre ellos, así que \"Anterior / 1 / 1 / Siguiente\" quedaba pegado al borde derecho del panel, justo debajo del botón X de cerrar. En pantallas de escritorio más estrechas la separación bajaba a unos 20 px, y era fácil pulsar la paginación al intentar cerrar la ventana. Ahora el bloque de paginación queda centrado en la barra y el selector de temporada mantiene su alineación a la izquierda. El selector se limita a 220 px para que no se estire al ocupar el hueco liberado, y no baja de 88 px: en paneles estrechos se encoge el selector en vez de descentrar la paginación.\n\nComprobado con la hoja de estilos real a 1920, 1680, 1512, 1440, 1366, 1280, 1180, 1100, 1024, 834, 768, 430 y 390 px, en español e inglés: la desviación respecto al centro es de 0,0 px en todos los anchos salvo en móviles de 390 px (28 px en el peor caso), y la barra nunca desborda ni parte en dos líneas.",
         "targetAbi": "10.11.0.0",
