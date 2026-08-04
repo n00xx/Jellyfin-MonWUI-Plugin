@@ -107,8 +107,18 @@ function buildRequestUrl({ startIndex, searchTerm }) {
     // The scope params above are set first and stay set — a SearchTerm without them would
     // search the whole server, which is exactly what "search only inside this section" rules out.
     params.set("SearchTerm", searchTerm);
-    params.set("SortBy", __descriptor?.searchSortBy || "SortName");
-    params.set("SortOrder", __descriptor?.searchSortOrder || "Ascending");
+    // Falling back to SortName here silently re-sorted the results alphabetically, so searching
+    // inside a "Recently Added" grid stopped showing newest-first — the one ordering that row is
+    // about. Inherit the descriptor's own sort so the search keeps the order the grid opened with;
+    // SortName stays the last resort for descriptors that declare no sort at all.
+    params.set(
+      "SortBy",
+      __descriptor?.searchSortBy || __descriptor?.query?.SortBy || "SortName"
+    );
+    params.set(
+      "SortOrder",
+      __descriptor?.searchSortOrder || __descriptor?.query?.SortOrder || "Ascending"
+    );
   }
 
   params.set("Limit", String(PAGE_SIZE));

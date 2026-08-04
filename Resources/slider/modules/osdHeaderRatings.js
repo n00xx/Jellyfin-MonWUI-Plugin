@@ -2,6 +2,7 @@ import { getSessionInfo, getAuthHeader } from "../../Plugins/JMSFusion/runtime/a
 import { getConfig, getPauseFeaturesRuntimeConfig } from "./config.js";
 import { getTomatoIconHtml } from "./customIcons.js";
 import { withServer } from "./jfUrl.js";
+import { isArrowBackButton, isRenderableNode } from "./muiBackButton.js";
 
 const HOST_ID = "jms-osd-header-ratings-v4";
 const SESSION_POLL_INTERVAL_MS = 10_000;
@@ -25,7 +26,6 @@ const MUI_PLAYBACK_ACTION_STRONG_SELECTOR = [
   '[aria-controls="app-remote-play-menu"]',
 ].join(", ");
 const MUI_PLAYBACK_ACTION_WEAK_SELECTOR = "#jellyfinPlayerToggle";
-const MUI_BACK_LABEL_TOKENS = ["geri", "back", "zuruck", "zurück", "retour", "volver", "назад"];
 const HEADER_CLOCK_FORMATTER_CACHE = new Map();
 
 function buildAuthHeaders() {
@@ -167,20 +167,6 @@ function shouldRenderRatings(cfg = {}) {
   );
 }
 
-function isRenderableNode(el) {
-  if (!(el instanceof Element)) return false;
-  if (!el.isConnected) return false;
-  if (el.closest(".hide,[hidden],[aria-hidden='true']")) return false;
-
-  try {
-    const style = window.getComputedStyle(el);
-    if (!style) return true;
-    if (style.display === "none" || style.visibility === "hidden") return false;
-  } catch {}
-
-  return true;
-}
-
 function isVisibleBox(el) {
   if (!(el instanceof Element)) return false;
   if (!isRenderableNode(el)) return false;
@@ -213,30 +199,6 @@ function isPlaybackScreenActive() {
   if (!(video instanceof HTMLMediaElement)) return false;
   if (!String(video.currentSrc || video.src || "").trim()) return false;
   return true;
-}
-
-function isArrowBackButton(button) {
-  if (!(button instanceof HTMLElement)) return false;
-  if (!isRenderableNode(button)) return false;
-
-  try {
-    if (button.querySelector('svg[data-testid="ArrowBackIcon"]')) return true;
-  } catch {}
-
-  const rawLabel = String(
-    button.getAttribute("aria-label") ||
-    button.getAttribute("title") ||
-    button.textContent ||
-    ""
-  ).trim();
-  if (!rawLabel) return false;
-
-  const normalized = rawLabel
-    .toLocaleLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-  return MUI_BACK_LABEL_TOKENS.some((token) => normalized.includes(token));
 }
 
 function findMuiPlaybackHeaderMount() {

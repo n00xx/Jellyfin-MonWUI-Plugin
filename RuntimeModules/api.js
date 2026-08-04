@@ -2363,12 +2363,22 @@ function buildLocalPlaybackItemStub(item = null, itemId = "", startPositionTicks
 
 // Jellyfin takes -1 as "no subtitles"; any other negative value means "leave it alone".
 // Returned as a partial payload so each start path can spread it into whatever shape it uses.
+// Number(null) is 0, not NaN — so a bare Number() cast here turned "no selection" into "pin
+// stream 0", and every playNow(itemId) call without an explicit picker (the home slider, the row
+// cards, cast) silently forced the file's first audio track, which is usually English. Empty
+// values have to be rejected before the cast, exactly like readPlaybackIndex does below.
+function toStreamIndex(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const index = Number(value);
+  return Number.isFinite(index) ? index : null;
+}
+
 function buildTrackSelectionPayload({ audioStreamIndex = null, subtitleStreamIndex = null } = {}) {
   const payload = {};
-  const audio = Number(audioStreamIndex);
-  if (Number.isFinite(audio) && audio >= 0) payload.audioStreamIndex = audio;
-  const subtitle = Number(subtitleStreamIndex);
-  if (Number.isFinite(subtitle) && subtitle >= -1) payload.subtitleStreamIndex = subtitle;
+  const audio = toStreamIndex(audioStreamIndex);
+  if (audio !== null && audio >= 0) payload.audioStreamIndex = audio;
+  const subtitle = toStreamIndex(subtitleStreamIndex);
+  if (subtitle !== null && subtitle >= -1) payload.subtitleStreamIndex = subtitle;
   return payload;
 }
 
@@ -2813,7 +2823,10 @@ function getActivePlayNowInFlight(itemId) {
 
 export async function playNow(itemId, { audioStreamIndex = null, subtitleStreamIndex = null } = {}) {
   const playNowRequestId = String(itemId || "").trim();
-  const trackSelection = buildTrackSelectionPayload({ audioStreamIndex, subtitleStreamIndex });
+  // Reassigned below once the leaf item is known: callers with a track picker (the details modal)
+  // pass their selection here and keep it, while callers without one (the home slider, row cards,
+  // cast) get the same preferred-audio rules applied for them.
+  let trackSelection = buildTrackSelectionPayload({ audioStreamIndex, subtitleStreamIndex });
   notifyPlaybackStartRequested({
     source: "api.playNow",
     itemId: playNowRequestId
@@ -2963,6 +2976,21 @@ export async function playNow(itemId, { audioStreamIndex = null, subtitleStreamI
       itemId = best;
       item = await fetchItemDetails(itemId);
     }
+
+    // Only surfaces with a track picker can pass a selection, so everything else used to start on
+    // whatever track Jellyfin picked — which is why the home slider opened titles in English while
+    // Play Now opened the same title in Spanish. Resolved here rather than at the call site
+    // because a Series exposes no MediaStreams: the streams only exist on the episode the two
+    // blocks above just resolved. An explicit selection from the caller always wins.
+    if (!hasTrackSelection(trackSelection)) {
+      try {
+        const { resolvePreferredTrackSelection } = await import("../../../slider/modules/trackSelection.js");
+        trackSelection = buildTrackSelectionPayload(resolvePreferredTrackSelection(item?.MediaStreams));
+      } catch (error) {
+        console.warn("[JMSFusion] Preferred track resolution skipped:", error);
+      }
+    }
+
     const normalizedItemId = String(itemId);
     let parentalGateItem = item;
     if (!parentalGateItem?.OfficialRating && parentalGateItem?.SeriesId) {

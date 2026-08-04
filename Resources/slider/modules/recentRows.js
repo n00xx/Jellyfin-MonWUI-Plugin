@@ -4058,6 +4058,7 @@ async function fillSectionWithItems({
   randomHero = false,
   heroRotateMs = 0,
   heroRotateOffsetMs = 0,
+  minItemsForHero = MIN_ITEMS_FOR_HERO_SPLIT,
   disableHoverPreview = false,
   disableHeroTrailer = false,
   hideHero = false,
@@ -4079,6 +4080,9 @@ async function fillSectionWithItems({
   };
   const runtimeCfg = getRecentRowsRuntimeConfig();
   const useHero = runtimeCfg.showHeroCards && !hideHero;
+  // A section can opt out of the "too small to spare a hero" rule when the hero is the point of
+  // the row rather than a bonus on top of it — see the Library Collections builder.
+  const heroSplitThreshold = Math.max(1, Number(minItemsForHero) || MIN_ITEMS_FOR_HERO_SPLIT);
   if (sectionClassName) section.classList.add(...String(sectionClassName).split(/\s+/).filter(Boolean));
   if (rowClassName) row.classList.add(...String(rowClassName).split(/\s+/).filter(Boolean));
   if (!useHero) heroHost.style.display = "none";
@@ -4231,7 +4235,7 @@ async function fillSectionWithItems({
     if (!isPassCurrent()) return false;
 
     let best = null;
-    if (useHero && pool.length >= MIN_ITEMS_FOR_HERO_SPLIT) {
+    if (useHero && pool.length >= heroSplitThreshold) {
       if (randomHero) {
         const idx = pickRandomIndex(pool.length);
         best = idx >= 0 ? pool[idx] : pool[0];
@@ -4257,9 +4261,13 @@ async function fillSectionWithItems({
       queueEnterAnimation(hero);
       // Rotation re-picks from this pool, so it needs no further network work.
       heroPool = pool;
-      startHeroRotation();
+      // A pool this small has nothing off-row to rotate to: rotateHeroCard would fall back to the
+      // one title already rendered as a poster and show it twice, as hero and as card. Sections
+      // that opted below the split threshold therefore keep a fixed hero instead of a rotating
+      // one — a still hero reads fine, the same title twice does not.
+      if (pool.length >= MIN_ITEMS_FOR_HERO_SPLIT) startHeroRotation();
     } else if (useHero) {
-      // Pool too small to justify a hero this pass (see MIN_ITEMS_FOR_HERO_SPLIT) — hide the
+      // Pool too small to justify a hero this pass (see heroSplitThreshold) — hide the
       // host so it doesn't sit there as an empty bordered box above the poster row.
       stopHeroRotation();
       heroPool = null;
@@ -4268,6 +4276,16 @@ async function fillSectionWithItems({
 
     row.innerHTML = "";
     if (!remaining.length) {
+      // A one-item pool that already went into the hero is not an empty row — the item is on
+      // screen. Only sections that render no hero at all fall through to the empty state, which
+      // is what keeps a single-title Library Collection from showing "no content" under its hero.
+      // The scroller still has to be finalized here, or the wrap stays stuck in rr-scroll-pending.
+      if (useHero && best) {
+        stopProgressiveRender();
+        if (!isRenderCurrent()) return false;
+        finalizeScroller();
+        return true;
+      }
       return renderEmptyState(config.languageLabels.noRecommendations || "Uygun içerik yok");
     }
     const targetCount = Math.min(cardCount, remaining.length);
@@ -5526,6 +5544,11 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
         showProgress: false,
         hideHero: runtimeCfg.showLibraryHubsHeroCards !== true,
         randomHero: true,
+        // Library Collections is a curated shelf whose hero is the row's headline, not a bonus on
+        // a long list — a small library like Donghuas or Documentales is exactly where the user
+        // wants it, so this section keeps its hero at any pool size. Other sections keep the
+        // default threshold, where a hero next to 1-2 posters reads as a truncated row.
+        minItemsForHero: 1,
         heroRotateMs: LIBRARY_HUBS_HERO_ROTATE_MS,
         heroRotateOffsetMs: libIndex * LIBRARY_HUBS_HERO_ROTATE_STAGGER_MS,
         disableHoverPreview: isCollections,

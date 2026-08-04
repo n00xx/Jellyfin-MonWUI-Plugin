@@ -1,5 +1,6 @@
 import { makeApiRequest, fetchItemDetailsFull, getDetailsUrl, goToDetailsPage, isCurrentUserAdmin, playNow, fetchLocalTrailers, pickBestLocalTrailer, getVideoStreamUrl, updateFavoriteStatus, getEmbyHeaders, getSessionInfo } from "../../Plugins/JMSFusion/runtime/api.js";
 import { withServer } from "./jfUrl.js";
+import { SUBTITLE_OFF_INDEX, pickPreferredAudioStream, resolvePreferredTrackSelection } from "./trackSelection.js";
 import { getConfig, getDetailsModalRuntimeConfig } from "./config.js";
 import { getLanguageLabels } from "../language/index.js";
 import { CollectionCacheDB } from "./collectionCacheDb.js";
@@ -17,49 +18,6 @@ import {
   isSerrMissingSyntheticItemRequested,
   requestSerrMissingSyntheticItem
 } from "./seerr/itemPageBridge.js";
-
-// --- Spanish audio preference -----------------------------------------------------------------
-// Two passes, because the two facts live in different fields: the ISO code says the track is
-// Spanish, and only the title distinguishes Latin American from European Spanish. A track
-// labelled "spa • EAC3 • BTM DDP5.1" carries no region at all, so the code has to be enough on
-// its own, with the title used to break ties when several Spanish tracks exist.
-const SPANISH_CODES = new Set(["spa", "es", "esp", "es-419", "es-mx", "es-la"]);
-const LATAM_HINTS = /latino|latinoam|latin\s*america|americ[aá]\s*latina|\bmx\b|m[eé]xic/i;
-const EUROPEAN_HINTS = /castellano|european|espa[nñ]a|iberic|\bes-es\b/i;
-
-// Jellyfin takes -1 as "no subtitles".
-const SUBTITLE_OFF_INDEX = -1;
-
-function streamSearchText(stream) {
-  return [stream?.DisplayTitle, stream?.Title, stream?.Language, stream?.LocalizedTitle]
-    .filter(Boolean)
-    .join(" ");
-}
-
-function isSpanishStream(stream) {
-  const code = String(stream?.Language || "").trim().toLowerCase();
-  if (SPANISH_CODES.has(code)) return true;
-  return /espa[nñ]ol|spanish|latino/i.test(streamSearchText(stream));
-}
-
-// Highest score wins: an explicitly Latin American track beats a generic Spanish one, which beats
-// a track flagged as European Spanish.
-function spanishPreferenceScore(stream) {
-  const text = streamSearchText(stream);
-  if (LATAM_HINTS.test(text)) return 3;
-  if (EUROPEAN_HINTS.test(text)) return 1;
-  return 2;
-}
-
-function pickPreferredAudioStream(streams = []) {
-  if (!Array.isArray(streams) || !streams.length) return null;
-  const spanish = streams.filter(isSpanishStream);
-  if (spanish.length) {
-    return spanish.reduce((best, stream) =>
-      spanishPreferenceScore(stream) > spanishPreferenceScore(best) ? stream : best);
-  }
-  return streams.find((stream) => stream?.IsDefault) || streams[0] || null;
-}
 
 const config = getConfig();
 const labels =
@@ -3144,7 +3102,7 @@ function startRecoLoad(root, movieItem, { signal } = {}) {
       const wrap = root.querySelector(".jmsdm-recos-wrap");
       if (!wrap) return;
 
-      const LIMIT = 12;
+      const LIMIT = 16;
       const seen = new Set([String(movieItem.Id)]);
       const picked = [];
 
@@ -4150,13 +4108,7 @@ wireMiniCardDelegation();
   async function resolveEpisodeTrackSelection(episodeId) {
     try {
       const details = await fetchItemDetailsFull(episodeId, { signal: _abort.signal });
-      const streams = Array.isArray(details?.MediaStreams) ? details.MediaStreams : [];
-      const audio = pickPreferredAudioStream(streams.filter((s) => s?.Type === "Audio"));
-      const audioIndex = Number(audio?.Index);
-      return {
-        audioStreamIndex: Number.isFinite(audioIndex) ? audioIndex : null,
-        subtitleStreamIndex: SUBTITLE_OFF_INDEX,
-      };
+      return resolvePreferredTrackSelection(details?.MediaStreams);
     } catch {
       return {};
     }

@@ -3409,6 +3409,9 @@ let subtitleCustomizerModulePromise = null;
 let cleanupOsdHeaderRatings = null;
 let osdHeaderRatingsBooted = false;
 let osdHeaderRatingsModulePromise = null;
+let cleanupPlaybackReturn = null;
+let playbackReturnBooted = false;
+let playbackReturnModulePromise = null;
 let navObsBooted = false;
 window.sliderResetInProgress = window.sliderResetInProgress || false;
 window.__slidesInitRunning = window.__slidesInitRunning || false;
@@ -3553,9 +3556,32 @@ async function refreshPauseOsdHeaderRatings({ force = false } = {}) {
   }
 }
 
+// Booted from the home page, well before anything can be played: the module has to be listening
+// for the playback-start event in order to know which item the player's back arrow should return
+// to. Booting it at playback time would already be too late.
+async function bootPlaybackReturnOnce() {
+  if (playbackReturnBooted) return true;
+  playbackReturnBooted = true;
+
+  try {
+    if (!playbackReturnModulePromise) {
+      playbackReturnModulePromise = import("./modules/playbackReturn.js");
+    }
+    const mod = await playbackReturnModulePromise;
+    cleanupPlaybackReturn = mod?.initPlaybackReturn?.() || null;
+    window.cleanupPlaybackReturn = cleanupPlaybackReturn;
+    return true;
+  } catch (e) {
+    playbackReturnBooted = false;
+    console.warn("bootPlaybackReturnOnce hata:", e);
+    return false;
+  }
+}
+
 async function refreshOptionalModules({ forcePause = false } = {}) {
   const tasks = [
     refreshSubtitleCustomizer(),
+    bootPlaybackReturnOnce(),
     forcePause ? restartPauseOverlay() : startPauseOverlayOnce(),
     refreshPauseOsdHeaderRatings({ force: forcePause }),
     Promise.resolve().then(async () => {
