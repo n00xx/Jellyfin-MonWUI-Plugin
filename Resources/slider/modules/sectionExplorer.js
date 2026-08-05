@@ -79,6 +79,17 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+/**
+ * The library part of a row title. Rows split per library are titled
+ * "<row name> • <library>"; only the library end is worth putting in a placeholder.
+ * Titles with no separator are returned unchanged.
+ */
+function shortSectionLabel(title) {
+  const parts = String(title ?? "").split("•");
+  const tail = parts[parts.length - 1].trim();
+  return tail || String(title ?? "").trim();
+}
+
 function isNextUp(descriptor) {
   return descriptor?.endpoint === SECTION_ENDPOINT_NEXT_UP;
 }
@@ -509,8 +520,11 @@ export function openSectionExplorer(descriptor) {
     const l = labels();
     const title = String(descriptor.title || l.all || "Tümü");
     const searchable = isSearchable(descriptor);
+    // Split rows are titled "Recently Added Series • Doramas". Interpolating that whole
+    // string yields a placeholder no input width can hold, so the placeholder names just
+    // the library. The header and the dialog's aria-label keep the full title.
     const searchPlaceholder = (l.sectionSearchPlaceholder || "Bu bölümde ara")
-      .replace("{section}", title);
+      .replace("{section}", shortSectionLabel(title));
 
     __overlay = document.createElement("div");
     __overlay.className = "genre-explorer-overlay section-explorer-overlay";
@@ -525,7 +539,7 @@ export function openSectionExplorer(descriptor) {
                      placeholder="${escapeHtml(searchPlaceholder)}"
                      aria-label="${escapeHtml(searchPlaceholder)}">
               <button type="button" class="sx-search-clear" hidden
-                      aria-label="${escapeHtml(l.sectionSearchClear || "Aramayı temizle")}">✕</button>
+                      aria-label="${escapeHtml(l.sectionSearchClear || "Aramayı temizle")}">×</button>
             </div>
           ` : ""}
           <div class="ge-actions">

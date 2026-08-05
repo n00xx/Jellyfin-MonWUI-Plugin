@@ -1136,6 +1136,7 @@ export const languageLabels = {
   slideAnimationDescription: "Efecto de animación entre diapositivas",
   dotAnimationDescription: "Efecto de animación para pósters de navegación por punto",
   season: "Temporada",
+  seasonSpecials: "Especiales",
   episode: "Episodio",
   dakika: "minuto",
   kaldi: "restante",

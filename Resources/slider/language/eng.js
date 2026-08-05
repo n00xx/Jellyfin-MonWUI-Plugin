@@ -1134,6 +1134,7 @@ export const languageLabels = {
   slideAnimationDescription: "Animation effect used between slides",
   dotAnimationDescription: "Animation effect for dot navigation posters",
   season: "Season",
+  seasonSpecials: "Specials",
   episode: "Episode",
   dakika: "minute",
   kaldi: "left",

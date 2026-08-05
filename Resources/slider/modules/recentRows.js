@@ -4,7 +4,7 @@ import { getLanguageLabels } from "../language/index.js";
 import { attachMiniPosterHover } from "./studioHubsUtils.js";
 import { REOPEN_COOLDOWN_MS, OPEN_HOVER_DELAY_MS } from "./hoverTrailerModal.js";
 import { createTrailerIframe, formatOfficialRatingLabel } from "./utils.js";
-import { isLibraryHubCollections, sortLibraryHubCategories } from "./libraryHubsShared.js";
+import { isLibraryHubCollections, isOrderedCategoryName, sortLibraryHubCategories } from "./libraryHubsShared.js";
 import {
   cleanupManagedImage,
   progressivelyRenderCardRow,
@@ -80,6 +80,14 @@ const LIBRARY_HUBS_HERO_ROTATE_MS = 5 * 60 * 1000;
 const LIBRARY_HUBS_HERO_ROTATE_STAGGER_MS = 7 * 1000;
 /** Extra items fetched beyond the row, reserved for the rotating hero to pick from. */
 const LIBRARY_HUBS_HERO_RESERVE = 8;
+/**
+ * The rows are an A→Z window into each library, so without a moving offset the same
+ * alphabetically-first titles sit there forever. The window advances one row-length per
+ * day, which walks the whole library over time and is stable for any given day.
+ */
+const LIBRARY_HUBS_ROTATION_PERIOD_MS = 24 * 60 * 60 * 1000;
+/** Per-library `{ total, day }`: the item count to size the window against, and the day it was taken. */
+const LIBRARY_HUBS_ROTATION_KEY = "jms:libraryHubs:rotation";
 /**
  * Below this pool size, splitting off a hero leaves too sparse a poster row (hero + 1-2 cards
  * reads as broken, not featured) — so small sections render every item as a plain poster instead.
@@ -1581,6 +1589,23 @@ async function resolveDefaultPages(userId) {
         CollectionType: (x.CollectionType || "").toString()
       }));
 
+    // Recently Added rows only exist for "movies" and "tvshows" libraries. A library the
+    // display order names explicitly but whose Jellyfin content type is something else
+    // gets no row at all, and no amount of sorting can place it — say so once, here,
+    // rather than leaving a silently missing row to be rediscovered from a screenshot.
+    const unroutable = STATE.allLibs.filter((lib) => {
+      const ct = String(lib.CollectionType || "").toLowerCase();
+      return isOrderedCategoryName(lib.Name) && ct !== "movies" && ct !== "tvshows";
+    });
+    if (unroutable.length) {
+      console.info(
+        "recentRows: sin fila de Añadidos Recientemente para " +
+        unroutable.map(l => `"${l.Name}" (Tipo de contenido="${l.CollectionType || "sin definir"}")`).join(", ") +
+        ". Solo las bibliotecas de tipo Películas o Series generan esta fila; " +
+        "ajusta el \"Tipo de contenido\" en el Dashboard de Jellyfin si la esperabas aquí."
+      );
+    }
+
     const tvLib = tvLibs[0] || null;
     const movLib = movieLibs[0] || null;
     const musicLib = items.find(x => (x?.CollectionType === "music")) || null;
@@ -1640,20 +1665,29 @@ function getSelectedMovieLibIds() {
   return Array.isArray(fromCfg) ? fromCfg.map(x => String(x || "").trim()).filter(Boolean) : [];
 }
 
+/**
+ * Ids for the split-per-library rows, in the canonical category order (Peliculas,
+ * Series, Doramas, Anime, Donghuas, Shows, Documentales) rather than the order
+ * /Users/{id}/Views happened to return, so the Recently Added rows read in the same
+ * sequence as the Library Hubs rows. Sorting happens on the library objects because
+ * the order is by name — mapping to ids first throws that away.
+ *
+ * A saved selection filters which libraries get a row; it does not reorder them.
+ */
+function resolveLibSelectionInDisplayOrder(libs, selectedIds) {
+  const ordered = sortLibraryHubCategories(libs || []).filter(lib => lib?.Id);
+  if (!ordered.length) return [];
+  const allowed = new Set((selectedIds || []).map(id => String(id)));
+  const picked = allowed.size ? ordered.filter(lib => allowed.has(String(lib.Id))) : [];
+  return (picked.length ? picked : ordered).map(lib => lib.Id);
+}
+
 function resolveMovieLibSelection() {
-  const all = (STATE.movieLibs || []).map(x => x.Id).filter(Boolean);
-  if (!all.length) return [];
-  const sel = getSelectedMovieLibIds();
-  const filtered = sel.filter(id => all.includes(id));
-  return filtered.length ? filtered : all;
+  return resolveLibSelectionInDisplayOrder(STATE.movieLibs, getSelectedMovieLibIds());
 }
 
 function resolveTvLibSelection(kind) {
-  const all = (STATE.tvLibs || []).map(x => x.Id).filter(Boolean);
-  if (!all.length) return [];
-  const sel = getSelectedTvLibIds(kind);
-  const filtered = sel.filter(id => all.includes(id));
-  return filtered.length ? filtered : all;
+  return resolveLibSelectionInDisplayOrder(STATE.tvLibs, getSelectedTvLibIds(kind));
 }
 
 function getSelectedOtherLibIds() {
@@ -3784,20 +3818,94 @@ async function fetchRecentGeneric(userId, limit, parentId) {
   }
 }
 
-async function fetchLibraryHubItems(userId, limit, lib) {
+/**
+ * Days elapsed in *local* time. A UTC bucket would roll the row over in the middle of
+ * the user's afternoon instead of at their midnight.
+ */
+function currentRotationDay() {
+  const now = new Date();
+  return Math.floor(
+    (now.getTime() - now.getTimezoneOffset() * 60000) / LIBRARY_HUBS_ROTATION_PERIOD_MS
+  );
+}
+
+function readLibraryHubRotation() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LIBRARY_HUBS_ROTATION_KEY) || "{}");
+    return (raw && typeof raw === "object" && !Array.isArray(raw)) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function readLibraryHubRotationEntry(libId) {
+  const entry = readLibraryHubRotation()[String(libId)];
+  return (entry && typeof entry === "object") ? entry : null;
+}
+
+function rememberLibraryHubFetch(libId, total) {
+  if (!libId) return;
+  try {
+    const next = Number(total);
+    const rotation = readLibraryHubRotation();
+    const previous = readLibraryHubRotationEntry(libId);
+    localStorage.setItem(LIBRARY_HUBS_ROTATION_KEY, JSON.stringify({
+      ...rotation,
+      [String(libId)]: {
+        // A response without a usable count must not wipe a good one.
+        total: Number.isFinite(next) && next >= 0 ? next : (previous?.total ?? null),
+        day: currentRotationDay()
+      }
+    }));
+  } catch {}
+}
+
+/**
+ * True while the cached id list still belongs to today's window. Without this, the first
+ * paint after midnight is yesterday's cards, replaced a moment later once the fetch lands.
+ */
+function isLibraryHubCacheCurrent(libId) {
+  return readLibraryHubRotationEntry(libId)?.day === currentRotationDay();
+}
+
+/**
+ * Where today's window starts. Clamped so a full pool always comes back, which removes
+ * any need to wrap around the end of the library with a second request.
+ */
+function libraryHubStartIndex(libId, poolSize, step) {
+  const total = Number(readLibraryHubRotationEntry(libId)?.total);
+  // Unknown on the very first load: start at 0 and rotate from tomorrow, once the
+  // response has told us how big the library is.
+  if (!Number.isFinite(total) || total <= poolSize) return 0;
+  const span = total - poolSize + 1;
+  const stride = Math.max(1, step | 0);
+  return ((currentRotationDay() * stride) % span + span) % span;
+}
+
+async function fetchLibraryHubItems(userId, limit, lib, step) {
   const parentId = lib?.Id;
   if (!parentId) return [];
-  const url =
+  const pool = Math.max(1, limit | 0);
+  const buildUrl = (startIndex) =>
     `/Users/${userId}/Items?` +
     `Recursive=true&Fields=${encodeURIComponent(COMMON_FIELDS)}&` +
     `EnableUserData=true&` +
     `ParentId=${encodeURIComponent(parentId)}&` +
     `IncludeItemTypes=${encodeURIComponent(getLibraryHubItemTypes(lib?.CollectionType))}&` +
-    `SortBy=SortName&SortOrder=Ascending&Limit=${Math.max(1, limit | 0)}&` +
+    `SortBy=SortName&SortOrder=Ascending&StartIndex=${startIndex}&Limit=${pool}&` +
     `ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Logo`;
   try {
-    const data = await makeApiRequest(url);
-    const items = Array.isArray(data?.Items) ? data.Items : [];
+    const startIndex = libraryHubStartIndex(parentId, pool, step);
+    let data = await makeApiRequest(buildUrl(startIndex));
+    let items = Array.isArray(data?.Items) ? data.Items : [];
+    // A library that shrank since the count was cached can leave the window past the last
+    // item. Falling back to the head keeps the row populated instead of blaming the
+    // library's content type for an empty result it did not cause.
+    if (!items.length && startIndex > 0) {
+      data = await makeApiRequest(buildUrl(0));
+      items = Array.isArray(data?.Items) ? data.Items : [];
+    }
+    rememberLibraryHubFetch(parentId, data?.TotalRecordCount);
     const out = uniqById(items).slice(0, limit);
     if (!out.length) {
       // Jellyfin's own item count for this ParentId is 0 here, not just this query's
@@ -5555,19 +5663,23 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
         disableHeroTrailer: isCollections,
         sectionClassName: "library-hub-section",
         fetcher: Object.assign(
-          () => fetchLibraryHubItems(userId, libraryHubPoolCount, lib).then(async (items) => {
+          () => fetchLibraryHubItems(userId, libraryHubPoolCount, lib, libraryHubCount).then(async (items) => {
             await writeCachedList("library_hub", `lib:${libId}`, items.map(x => x?.Id).filter(Boolean));
             return items;
           }),
           {
-            cachedItems: () => loadCachedRowItems("library_hub", `lib:${libId}`, TTL_RECENT_MS, {
-              limit: libraryHubPoolCount,
-              afterLoad: attachSeriesPosterSourceToEpsAndSeasons
-            })
+            // Yesterday's window is not just stale, it is the wrong set of cards — paint
+            // nothing rather than flash it while today's fetch is still in flight.
+            cachedItems: () => (isLibraryHubCacheCurrent(libId)
+              ? loadCachedRowItems("library_hub", `lib:${libId}`, TTL_RECENT_MS, {
+                  limit: libraryHubPoolCount,
+                  afterLoad: attachSeriesPosterSourceToEpsAndSeasons
+                })
+              : Promise.resolve({ items: [], fresh: false }))
           }
         ),
-        // Mirrors fetchLibraryHubItems, so the explorer is the whole library A→Z and the
-        // search reaches every title in it — not just the ones the row had room for.
+        // Deliberately NOT the row's query: the row shows one rotating day-window, while
+        // "See all" is the whole library A→Z so the search reaches every title in it.
         onSeeAll: (title) => openSeeAll({
           title,
           query: {
