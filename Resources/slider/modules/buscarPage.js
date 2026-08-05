@@ -588,7 +588,7 @@ export async function openBuscarPage() {
           <span class="sx-search-icon" aria-hidden="true">${faIconHtml("search")}</span>
           <input class="sx-search-input" type="search" autocomplete="off" spellcheck="false"
                  placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(placeholder)}">
-          <button type="button" class="sx-search-clear" hidden aria-label="${escapeHtml(L("sectionSearchClear", "Limpiar búsqueda"))}">✕</button>
+          <button type="button" class="sx-search-clear" hidden aria-label="${escapeHtml(L("sectionSearchClear", "Limpiar búsqueda"))}">×</button>
         </div>
         <div class="ge-actions">
           <button type="button" class="ge-close" aria-label="${escapeHtml(L("close", "Cerrar"))}">✕</button>

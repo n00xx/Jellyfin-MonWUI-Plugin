@@ -1659,6 +1659,47 @@ function safeText(s, fallback = "") {
   return t || fallback;
 }
 
+/**
+ * Season names whose only content is "<word for season> <number>". Jellyfin stores
+ * whatever the metadata provider returned, per season, so one series can hold
+ * "Temporada 1" next to an English "Season 4" and the dropdown renders both.
+ * Matching these lets us restate them in the UI language; anything else is a real
+ * name the user picked (common in Anime/Donghuas) and must survive untouched.
+ */
+const GENERIC_SEASON_NAME_RE =
+  /^(?:season|temporada|sezon|saison|staffel|stagione|série|serie|series)\s*\.?\s*0*(\d+)$/i;
+
+/**
+ * The label for the episode-list season dropdown. Prefers the server's name and only
+ * rewrites it when that name carries no information beyond the season number.
+ *
+ * Season 0 is left alone on purpose: Jellyfin names it "Specials"/"Especiales", which
+ * is meaningful, and rebuilding it would produce "Temporada 0".
+ */
+function resolveSeasonDisplayName(season) {
+  const rawName = (season?.Name ?? "").toString().trim();
+  // Number(null) is 0, which would send an index-less season down the Specials branch.
+  const rawIndex = season?.IndexNumber;
+  const index = (rawIndex === null || rawIndex === undefined || rawIndex === "")
+    ? NaN
+    : Number(rawIndex);
+  const hasIndex = Number.isFinite(index);
+
+  if (hasIndex && index === 0) {
+    return rawName || label("seasonSpecials", "Özel Bölümler");
+  }
+
+  const seasonWord = safeText(config?.languageLabels?.season, "Sezon");
+  const generic = rawName ? GENERIC_SEASON_NAME_RE.exec(rawName) : null;
+
+  // The name's own number wins over IndexNumber: a season labelled "Season 4" stays
+  // the fourth season even where the two disagree.
+  if (generic) return `${seasonWord} ${Number(generic[1])}`;
+  if (rawName) return rawName;
+
+  return hasIndex ? `${seasonWord} ${index}` : seasonWord;
+}
+
 function label(key, fallback = "") {
   return safeText(labels?.[key] || config?.languageLabels?.[key], fallback);
 }
@@ -3380,7 +3421,10 @@ export async function openDetailsModal({ itemId, item: preloadedItem = null, det
             Id: seasonId || baseItem?.SeasonId || baseItem?.ParentId || "",
             SeriesId: seriesId,
             IndexNumber: Number(baseItem.ParentIndexNumber),
-            Name: baseItem?.SeasonName || `${config.languageLabels.season || "Sezon"} ${baseItem.ParentIndexNumber}`
+            Name: resolveSeasonDisplayName({
+              Name: baseItem?.SeasonName,
+              IndexNumber: Number(baseItem.ParentIndexNumber)
+            })
           }
         : null);
     if (selectedSeason && seriesDetailsForSerr) {
@@ -3629,9 +3673,9 @@ wireMiniCardDelegation();
           <div class="jmsdm-select-wrap">
             <select class="jmsdm-select" aria-label="${config.languageLabels.seasonSelect || "Sezon Seç"}">
               ${seasons.map(s => {
-                const n = safeText(s.Name, `${config.languageLabels.season || "Sezon"} ${s.IndexNumber ?? ""}`.trim());
+                const n = resolveSeasonDisplayName(s);
                 const sel = String(s.Id) === String(selectedSeasonId) ? "selected" : "";
-                return `<option value="${s.Id}" ${sel}>${n}</option>`;
+                return `<option value="${s.Id}" ${sel}>${escapeHtml(n)}</option>`;
               }).join("")}
             </select>
           </div>

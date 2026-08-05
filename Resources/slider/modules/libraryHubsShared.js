@@ -48,6 +48,14 @@ export function isLibraryHubCollections(lib) {
   return normalizeCategoryName(lib?.Name) === "collections";
 }
 
+/**
+ * True when the display order names this library explicitly. Lets callers tell a
+ * library the user expects in a specific slot apart from one that merely sorts after.
+ */
+export function isOrderedCategoryName(name) {
+  return LIBRARY_HUBS_NAME_ORDER.includes(normalizeCategoryName(name));
+}
+
 function getLibraryHubOrderRank(lib) {
   if (isLibraryHubCollections(lib)) return LIBRARY_HUBS_COLLECTIONS_RANK;
   const index = LIBRARY_HUBS_NAME_ORDER.indexOf(normalizeCategoryName(lib?.Name));
