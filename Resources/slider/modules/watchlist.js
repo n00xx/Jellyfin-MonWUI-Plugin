@@ -2051,7 +2051,7 @@ function ensureStyles() {
       padding: 18px;
     }
     #${WATCHLIST_MODAL_ID} .monwuiwl-card {
-      width: min(1280px, calc(110vw - 24px));
+      width: min(1280px, calc(100vw - 24px));
       height: min(92vh, 900px);
       background:
         linear-gradient(180deg, rgba(21, 25, 36, 0.96), rgba(10, 12, 18, 0.98));
@@ -3582,6 +3582,118 @@ function ensureStyles() {
       }
       #${WATCHLIST_MODAL_ID} .monwuiwl-item {
         grid-template-columns: 96px minmax(0, 1fr);
+      }
+      /*
+       * The card is width:100%/height:100% here, so the backdrop-click escape has no
+       * backdrop left to hit — the close button is the only pointer route out. Pin it to
+       * the header corner instead of leaving it as the last flex item of .monwuiwl-header-actions,
+       * whose siblings (the per-type select + "Create Smart Watchlist") overflow the header on
+       * phones and pushed it under .monwuiwl-card's overflow:hidden.
+       */
+      #${WATCHLIST_MODAL_ID} .monwuiwl-header {
+        position: relative;
+        padding-right: 68px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-close {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        flex-shrink: 1;
+        min-width: 0;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-smart-fill,
+      #${WATCHLIST_MODAL_ID} .monwuiwl-smart-fill-count-wrap {
+        min-width: 0;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-smart-fill {
+        flex: 1 1 auto;
+      }
+    }
+    @media (max-width: 480px) {
+      #${WATCHLIST_MODAL_ID} .monwuiwl-header {
+        padding: 14px 12px 10px;
+        padding-right: 60px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-close {
+        top: 10px;
+        right: 10px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-title {
+        font-size: 22px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-subtitle {
+        font-size: 13px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-smart-fill,
+      #${WATCHLIST_MODAL_ID} .monwuiwl-smart-fill-count-wrap {
+        flex: 1 1 100%;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-smart-fill {
+        justify-content: center;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-smart-fill-count {
+        flex: 1 1 auto;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-tabs {
+        padding: 10px 12px 0;
+        gap: 6px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-tab {
+        padding: 10px 12px;
+        font-size: 11px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-body {
+        padding: 12px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-preview-collection-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-preview-hero-inner {
+        grid-template-columns: 72px minmax(0, 1fr);
+        min-height: 0;
+        padding: 12px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-preview-poster {
+        width: 72px;
+        height: 108px;
+      }
+      #${WATCHLIST_MODAL_ID} .monwuiwl-item {
+        grid-template-columns: 76px minmax(0, 1fr);
+      }
+    }
+    /*
+     * Native Jellyfin puts two short labels in .emby-tabs-slider; the plugin adds two more,
+     * each icon + label. Four do not fit on a phone and the last one (Buscar) landed outside
+     * the viewport. Collapse to icon-only, and hide the label with the clip technique rather
+     * than display:none so the button keeps an accessible name -- neither createTabsSliderButton
+     * nor createMuiTabsSliderButton sets an aria-label of its own.
+     */
+    @media (max-width: 600px) {
+      .emby-tabs-slider .${WATCHLIST_NAV_BUTTON_CLASS},
+      .${WATCHLIST_MUI_NAV_LINK_CLASS}.${WATCHLIST_NAV_BUTTON_CLASS} {
+        gap: 6px;
+      }
+    }
+    @media (max-width: 480px) {
+      .emby-tabs-slider .${WATCHLIST_NAV_BUTTON_CLASS},
+      .${WATCHLIST_MUI_NAV_LINK_CLASS}.${WATCHLIST_NAV_BUTTON_CLASS} {
+        gap: 0;
+      }
+      .emby-tabs-slider .${WATCHLIST_NAV_BUTTON_CLASS} .monwui-watchlist-nav-label,
+      .${WATCHLIST_MUI_NAV_LINK_CLASS}.${WATCHLIST_NAV_BUTTON_CLASS} .monwui-watchlist-nav-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
     }
   `;
@@ -5485,7 +5597,8 @@ async function startWatchlistPlayback(triggerEl, itemId) {
   try {
     if (triggerEl) triggerEl.disabled = true;
     try { await closeDetailsModalIfLoaded(); } catch {}
-    await closeWatchlistModal();
+    dropWatchlistHistoryClaim();
+    await closeWatchlistModal({ viaHistory: true });
     const started = await playNow(id);
     if (!started) {
       if (getLastPlayNowBlockReason() === "parental-pin") {
@@ -7319,8 +7432,105 @@ function openShareOverlayForView(root, itemId, view, users, options = {}) {
   host.appendChild(overlay);
 }
 
+/*
+ * Dismissal routes out of the watchlist overlay.
+ *
+ * On phones the card is width:100%/height:100%, so the backdrop-click route in
+ * ensureModalRoot() has no backdrop left to hit and the close button is the only pointer
+ * escape. These two add the keyboard and hardware-Back routes the modal never had.
+ */
+const WATCHLIST_HISTORY_MARKER = "monwuiWatchlistModal";
+let watchlistHistoryDepth = 0;
+let watchlistHistoryUnwinding = false;
+let watchlistDismissListenersBound = false;
+
+function watchlistOwnsCurrentHistoryEntry() {
+  try {
+    return window.history?.state?.[WATCHLIST_HISTORY_MARKER] === true;
+  } catch {
+    return false;
+  }
+}
+
+function pushWatchlistHistoryEntry() {
+  if (watchlistHistoryDepth > 0) return;
+  try {
+    /*
+     * Same URL on purpose: Jellyfin routes on the hash, so pushing an entry whose hash is
+     * unchanged gives Android's Back button something to pop without the SPA router ever
+     * seeing a route change.
+     */
+    window.history.pushState(
+      { ...(window.history.state || {}), [WATCHLIST_HISTORY_MARKER]: true },
+      "",
+      window.location.href
+    );
+    watchlistHistoryDepth = 1;
+  } catch {}
+}
+
+function unwindWatchlistHistoryEntry() {
+  if (watchlistHistoryDepth <= 0) return;
+  watchlistHistoryDepth = 0;
+  /*
+   * If the SPA pushed its own entry on top of ours, going back would land on that route
+   * instead of dropping our marker. Abandon the claim rather than move the user.
+   */
+  if (!watchlistOwnsCurrentHistoryEntry()) return;
+  watchlistHistoryUnwinding = true;
+  try {
+    window.history.back();
+  } catch {
+    watchlistHistoryUnwinding = false;
+    return;
+  }
+  setTimeout(() => { watchlistHistoryUnwinding = false; }, 600);
+}
+
+/*
+ * Give up the pushed entry without calling history.back(), for callers that close the modal
+ * and immediately route somewhere else. back() is async, so racing it against the caller's
+ * own navigation can send the user backwards out of the page they just opened. Stripping the
+ * marker in place leaves an entry pointing at the pre-modal URL, which is where Back should
+ * land from the new route anyway.
+ */
+function dropWatchlistHistoryClaim() {
+  if (watchlistHistoryDepth <= 0) return;
+  watchlistHistoryDepth = 0;
+  if (!watchlistOwnsCurrentHistoryEntry()) return;
+  try {
+    const { [WATCHLIST_HISTORY_MARKER]: _dropped, ...rest } = window.history.state || {};
+    window.history.replaceState(rest, "", window.location.href);
+  } catch {}
+}
+
+function ensureWatchlistDismissListeners() {
+  if (watchlistDismissListenersBound) return;
+  watchlistDismissListenersBound = true;
+
+  window.addEventListener("popstate", () => {
+    if (watchlistHistoryUnwinding) {
+      watchlistHistoryUnwinding = false;
+      return;
+    }
+    if (watchlistHistoryDepth <= 0) return;
+    watchlistHistoryDepth = 0;
+    closeWatchlistModal({ viaHistory: true }).catch(() => {});
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    const root = document.getElementById(WATCHLIST_MODAL_ID);
+    if (!root?.classList.contains("visible")) return;
+    event.preventDefault();
+    closeWatchlistModal().catch(() => {});
+  });
+}
+
 export async function openWatchlistModal(options = {}) {
   ensureStyles();
+  ensureWatchlistDismissListeners();
+  pushWatchlistHistoryEntry();
   const root = ensureModalRoot();
   try {
     if (document.body && root.parentElement === document.body) {
@@ -7342,7 +7552,8 @@ export async function openWatchlistModal(options = {}) {
   return root;
 }
 
-export async function closeWatchlistModal() {
+export async function closeWatchlistModal({ viaHistory = false } = {}) {
+  if (!viaHistory) unwindWatchlistHistoryEntry();
   const root = document.getElementById(WATCHLIST_MODAL_ID);
   if (!root) return;
   clearPreviewHoverTimer(root);
