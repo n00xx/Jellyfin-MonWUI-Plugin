@@ -37,10 +37,22 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
         private const int MaxTitleLength = 180;
         private const int SerrListSyncCacheMs = 15_000;
         private const int LocalAvailabilityScanCacheMs = 20_000;
+        // Buscar cross-references every Seerr result against the library on each query. The
+        // batch endpoint keeps that to one round trip; this cache keeps the in-process lookups
+        // near-free across the overlapping queries a user types ("bat" -> "batm" -> "batman").
+        private const int LocalTmdbCacheMs = 60_000;
+        // A miss is the more perishable answer: Buscar exists so users can request titles that
+        // then arrive in the library, whereas a title already present rarely disappears. Caching
+        // "not here" for as long as "here" would keep showing Solicitar on something that landed.
+        private const int LocalTmdbMissCacheMs = 15_000;
+        private const int MaxLocalTmdbBatch = 120;
+        private const int MaxLocalTmdbCacheEntries = 2_000;
         private const int ArrQueueCacheMs = 2_000;
         private const int ArrLookupCacheMs = 60_000;
         private const int MaxSerrRequestLookupPages = 10;
         private static readonly object ArrRecordsCacheRoot = new();
+        private static readonly object LocalTmdbCacheRoot = new();
+        private static readonly Dictionary<int, LocalTmdbCacheEntry> LocalTmdbCache = new();
         private static readonly Dictionary<string, ArrRecordCacheEntry> ArrRecordsCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, Task<List<JsonElement>>> ArrRecordsInFlight = new(StringComparer.OrdinalIgnoreCase);
         private static long LastSerrListSyncAtUtc;
@@ -687,6 +699,120 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
                 tmdbId = id,
                 items
             });
+        }
+
+        /// <summary>
+        /// Batch form of <see cref="GetLocalByTmdbId"/>: resolves many TMDb ids to their local
+        /// Jellyfin item id in a single round trip.
+        /// </summary>
+        /// <remarks>
+        /// The Buscar overlay has to ask "is this already in the library?" once per Seerr result
+        /// just to decide which section a card belongs to. Doing that with the unitary endpoint
+        /// cost one HTTP request per title — and browsers cap concurrent connections per origin,
+        /// so 24 lookups left in ~4 serialized waves. Here the loop runs in-process against the
+        /// library database instead, which turns the network cost into a constant.
+        ///
+        /// Deliberately mirrors the unitary endpoint's semantics: the lookup is library-wide and
+        /// not user-scoped, exactly like <see cref="FindJellyfinItemsByTmdb"/>. Callers still have
+        /// to hydrate the ids through a user-scoped item fetch, which is where per-user visibility
+        /// is actually enforced.
+        /// </remarks>
+        [HttpGet("local/tmdb")]
+        public IActionResult GetLocalByTmdbIds([FromQuery] string? ids)
+        {
+            var userCheck = TryGetRequestUser();
+            if (userCheck.Result is not null)
+            {
+                return userCheck.Result;
+            }
+
+            var wanted = ParseTmdbIdList(ids);
+            var matches = new Dictionary<string, string>(wanted.Count, StringComparer.Ordinal);
+            var startedAt = NowMs();
+            var cacheHits = 0;
+
+            foreach (var tmdbId in wanted)
+            {
+                if (TryGetCachedLocalTmdbMatch(tmdbId, out var cached))
+                {
+                    cacheHits++;
+                    if (!string.IsNullOrEmpty(cached)) matches[tmdbId.ToString(CultureInfo.InvariantCulture)] = cached!;
+                    continue;
+                }
+
+                var first = FindJellyfinItemsByTmdb(tmdbId).FirstOrDefault();
+                var itemId = first is null ? string.Empty : NormalizeItemId(first);
+                CacheLocalTmdbMatch(tmdbId, itemId);
+                if (!string.IsNullOrEmpty(itemId)) matches[tmdbId.ToString(CultureInfo.InvariantCulture)] = itemId;
+            }
+
+            NoCache();
+            return Ok(new
+            {
+                ok = true,
+                requested = wanted.Count,
+                matched = matches.Count,
+                cacheHits,
+                lookupMs = NowMs() - startedAt,
+                matches
+            });
+        }
+
+        /// <summary>
+        /// Parses the comma-separated <c>ids</c> query value into distinct positive TMDb ids,
+        /// silently dropping anything unparseable and capping the batch so a hand-built URL
+        /// cannot turn one request into an unbounded scan.
+        /// </summary>
+        private static List<int> ParseTmdbIdList(string? raw)
+        {
+            var output = new List<int>();
+            if (string.IsNullOrWhiteSpace(raw)) return output;
+
+            var seen = new HashSet<int>();
+            foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)) continue;
+                if (id <= 0 || !seen.Add(id)) continue;
+                output.Add(id);
+                if (output.Count >= MaxLocalTmdbBatch) break;
+            }
+
+            return output;
+        }
+
+        private static bool TryGetCachedLocalTmdbMatch(int tmdbId, out string? itemId)
+        {
+            lock (LocalTmdbCacheRoot)
+            {
+                if (LocalTmdbCache.TryGetValue(tmdbId, out var entry) && entry.ExpiresAtUtc > NowMs())
+                {
+                    itemId = entry.ItemId;
+                    return true;
+                }
+            }
+
+            itemId = null;
+            return false;
+        }
+
+        private static void CacheLocalTmdbMatch(int tmdbId, string itemId)
+        {
+            lock (LocalTmdbCacheRoot)
+            {
+                if (LocalTmdbCache.Count >= MaxLocalTmdbCacheEntries)
+                {
+                    var now = NowMs();
+                    foreach (var stale in LocalTmdbCache.Where(pair => pair.Value.ExpiresAtUtc <= now).Select(pair => pair.Key).ToList())
+                    {
+                        LocalTmdbCache.Remove(stale);
+                    }
+
+                    if (LocalTmdbCache.Count >= MaxLocalTmdbCacheEntries) LocalTmdbCache.Clear();
+                }
+
+                var ttl = string.IsNullOrEmpty(itemId) ? LocalTmdbMissCacheMs : LocalTmdbCacheMs;
+                LocalTmdbCache[tmdbId] = new LocalTmdbCacheEntry(NowMs() + ttl, itemId);
+            }
         }
 
         [HttpPost("request")]
@@ -4901,6 +5027,9 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
         }
 
         private sealed record ArrRecordCacheEntry(long ExpiresAtUtc, List<JsonElement> Records);
+
+        /// <summary>Cached TMDb id -> local Jellyfin item id. Empty <c>ItemId</c> caches a miss.</summary>
+        private sealed record LocalTmdbCacheEntry(long ExpiresAtUtc, string ItemId);
 
         private readonly struct RequestSubmissionResult
         {

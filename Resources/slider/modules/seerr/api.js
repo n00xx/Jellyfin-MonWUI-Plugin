@@ -139,6 +139,33 @@ export async function searchJellyfinByTmdbId(id) {
   return request(`/local/tmdb/${encodeURIComponent(String(Math.floor(clean)))}`);
 }
 
+/**
+ * Batch form of searchJellyfinByTmdbId. Resolves many TMDb ids to their local Jellyfin item id
+ * in a single round trip, so a caller cross-referencing a whole result page pays one request
+ * instead of one per title (which the browser then serializes into waves of ~6).
+ *
+ * Returns a Map of tmdbId (number) -> Jellyfin item id (string). Ids with no local match are
+ * absent from the Map rather than present-and-null, so callers can use `.get(id) || null`.
+ */
+export async function searchJellyfinByTmdbIds(ids = []) {
+  const clean = Array.from(new Set(
+    (Array.isArray(ids) ? ids : [])
+      .map((value) => Math.floor(Number(value)))
+      .filter((value) => Number.isFinite(value) && value > 0)
+  ));
+  if (!clean.length) return new Map();
+
+  const data = await request(`/local/tmdb?ids=${encodeURIComponent(clean.join(","))}`);
+  const matches = data?.matches;
+  if (!matches || typeof matches !== "object") return new Map();
+
+  return new Map(
+    Object.entries(matches)
+      .filter(([, itemId]) => typeof itemId === "string" && itemId)
+      .map(([tmdbId, itemId]) => [Number(tmdbId), itemId])
+  );
+}
+
 export async function createSerrRequest(payload = {}) {
   return request("/request", {
     method: "POST",

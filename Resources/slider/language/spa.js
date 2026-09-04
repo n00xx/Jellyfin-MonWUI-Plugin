@@ -261,6 +261,8 @@ export const languageLabels = {
   buscarSearchPlaceholder: "Buscar películas, series...",
   buscarNoResults: "No encontramos nada con ese nombre.",
   buscarNotConfigured: "La búsqueda de Seerr/Arr no está configurada en este servidor.",
+  buscarSectionAvailable: "En biblioteca",
+  buscarSectionDiscover: "Descubre",
   buscarAvailableBadge: "Ya disponible",
   buscarRequestBadge: "Solicitar",
   buscarRequestedBadge: "Solicitado",
