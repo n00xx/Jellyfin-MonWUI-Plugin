@@ -3,7 +3,7 @@ import { getConfig } from "./config.js";
 import { faIconHtml } from "./faIcons.js";
 import { createRecommendationCard } from "./recentRows.js";
 import { registerExplorerCloser } from "./genreExplorer.js";
-import { getSerrAccess, searchSerr, searchJellyfinByTmdbId, createSerrRequest, listSerrRequests } from "./seerr/api.js";
+import { getSerrAccess, searchSerr, searchJellyfinByTmdbIds, createSerrRequest, listSerrRequests } from "./seerr/api.js";
 import { ensureSerrStyles } from "./seerr/styles.js";
 import {
   mergeSearchResults,
@@ -27,8 +27,11 @@ import {
  */
 
 const SEARCH_DEBOUNCE_MS = 320;
-// Caps how many results get a per-title searchJellyfinByTmdbId lookup — those calls are not
-// batched server-side, so this bounds the fan-out to what the grid can actually show at once.
+// This no longer bounds network fan-out — the library cross-reference is one batched request
+// regardless of size (see searchJellyfinByTmdbIds). What it still bounds is card construction:
+// every result builds a real card with its own poster and listeners, and that cost has not been
+// measured against a full library. Raising it is safe on the network side and untested on the
+// render side, so it stays where it was until the render cost is measured on a live server.
 const RESULT_LIMIT = 24;
 const STYLE_ID = "monwui-buscar-style";
 
@@ -90,8 +93,47 @@ function ensureBuscarStyles() {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .buscar-request-year { color: rgba(255,255,255,.55); font-weight: 600; }
+    /* Both are single children of a 170px-track grid, so without the span they render inside
+       one narrow column with 48px of padding around a wrapped word. */
+    .buscar-overlay .buscar-empty, .buscar-overlay .buscar-status {
+      grid-column: 1 / -1;
+    }
     .buscar-empty, .buscar-status {
       color: rgba(227,243,248,.82); font-size: 14px; padding: 48px 16px; text-align: center;
+    }
+    /* Section headings span the whole row so the grid's auto-fill tracks resume beneath them.
+       Everything here is scoped to .buscar-overlay because .ge-grid is shared with the five
+       "See all" explorer grids. */
+    .buscar-overlay .buscar-section-head {
+      grid-column: 1 / -1;
+      display: flex; align-items: baseline; gap: 10px;
+      margin: 4px 2px 0;
+    }
+    .buscar-overlay .buscar-section-head--discover {
+      margin-top: 22px; padding-top: 18px;
+      border-top: 1px solid rgba(166,206,220,.16);
+    }
+    .buscar-overlay .buscar-section-title {
+      margin: 0;
+      font-size: clamp(1.02rem, 1.6vw, 1.26rem);
+      font-weight: 800; letter-spacing: -.01em; line-height: 1.2;
+      color: #eef8fb;
+    }
+    .buscar-overlay .buscar-section-count {
+      font-size: 11px; font-weight: 800; line-height: 1;
+      padding: 4px 8px; border-radius: 999px;
+      color: rgba(227,243,248,.72);
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(166,206,220,.18);
+    }
+    .buscar-overlay .buscar-section-head--available .buscar-section-count {
+      color: #06210f; background: linear-gradient(135deg,#3ddc84,#1fae64); border-color: transparent;
+    }
+    .buscar-overlay .buscar-section-head--discover .buscar-section-count {
+      color: #fff; background: linear-gradient(135deg,#b98bff,#7c3aed); border-color: transparent;
+    }
+    @media (max-width: 640px) {
+      .buscar-overlay .buscar-section-head--discover { margin-top: 16px; padding-top: 14px; }
     }
     #monwuiBuscarConfirmModal {
       align-items: center; backdrop-filter: blur(14px);
@@ -340,30 +382,37 @@ async function fetchFullItemsByIds(ids) {
 }
 
 /**
- * searchJellyfinByTmdbId has no batch form, so this fans out one lookup per visible result
- * (capped by RESULT_LIMIT) rather than per keystroke — the caller only invokes this once per
- * submitted/debounced query, after the Seerr search itself has already resolved. The follow-up
- * full-item fetch IS batched into a single request for every match found on the page.
+ * Cross-references every result against the local library in exactly two requests: one batched
+ * TMDb-id lookup, then one batched fetch of the full item shape for whatever matched.
+ *
+ * This used to fan out one searchJellyfinByTmdbId call per title. Browsers cap concurrent
+ * connections per origin, so those lookups left in serialized waves and dominated the time to
+ * first card — the whole reason the result set was capped at 24. With the batch endpoint the
+ * network cost is constant, so the cap no longer buys anything and covering the full page is
+ * cheaper than covering a third of it used to be.
  */
 async function annotateWithLibraryMatches(results) {
   const capped = results.slice(0, RESULT_LIMIT);
-  const matchedIds = await Promise.all(capped.map(async (result) => {
+
+  // TMDb ids are only unique *within* a media type, so a person and a movie can share one.
+  // Resolving the id per row without re-checking the type would let a movie match leak onto a
+  // same-numbered non-movie row. Callers currently pre-filter to movie/tv, but the guard stays
+  // local so this function is correct on its own.
+  const lookupId = (result) => {
     const type = resultMediaType(result);
     if (type !== "movie" && type !== "tv") return null;
-    try {
-      const res = await searchJellyfinByTmdbId(Number(result?.id));
-      const thin = Array.isArray(res?.items) ? res.items[0] : null;
-      return thin?.Id ? String(thin.Id) : null;
-    } catch {
-      return null;
-    }
-  }));
+    const id = Math.floor(Number(result?.id));
+    return Number.isFinite(id) && id > 0 ? id : null;
+  };
 
-  const fullItemsById = await fetchFullItemsByIds(matchedIds.filter(Boolean));
+  const tmdbIds = capped.map(lookupId).filter((id) => id !== null);
+  const matchesByTmdbId = await searchJellyfinByTmdbIds(tmdbIds).catch(() => new Map());
+  const fullItemsById = await fetchFullItemsByIds(Array.from(matchesByTmdbId.values()));
 
-  return capped.map((result, index) => {
-    const id = matchedIds[index];
-    return { result, localItem: id ? (fullItemsById.get(id) || null) : null };
+  return capped.map((result) => {
+    const tmdbId = lookupId(result);
+    const itemId = tmdbId === null ? null : matchesByTmdbId.get(tmdbId);
+    return { result, localItem: itemId ? (fullItemsById.get(itemId) || null) : null };
   });
 }
 
@@ -378,6 +427,25 @@ async function fetchActiveSerrRequests() {
   return Array.isArray(data?.requests) ? data.requests : [];
 }
 
+/**
+ * Emits a section heading spanning the full grid row, followed by its cards. Renders nothing at
+ * all when the bucket is empty — a heading over zero results is exactly the noise these sections
+ * exist to remove.
+ */
+function appendSection(frag, { title, count, variant, cards }) {
+  if (!cards.length) return;
+
+  const head = document.createElement("div");
+  head.className = `buscar-section-head buscar-section-head--${variant}`;
+  head.setAttribute("role", "presentation");
+  head.innerHTML = `
+    <h3 class="buscar-section-title">${escapeHtml(title)}</h3>
+    <span class="buscar-section-count">${count}</span>
+  `;
+  frag.appendChild(head);
+  cards.forEach((card) => frag.appendChild(card));
+}
+
 async function renderEntries(grid, entries, token) {
   releaseCards(grid);
   grid.innerHTML = "";
@@ -390,19 +458,30 @@ async function renderEntries(grid, entries, token) {
     return;
   }
 
-  const needsRequestCheck = entries.some((entry) => !entry.localItem);
-  const activeRequests = needsRequestCheck ? await fetchActiveSerrRequests() : [];
+  // Split, preserving Seerr's relevance order inside each bucket.
+  const available = entries.filter((entry) => entry.localItem);
+  const missing = entries.filter((entry) => !entry.localItem);
+
+  const activeRequests = missing.length ? await fetchActiveSerrRequests() : [];
   if (token !== __queryToken) return;
 
   const frag = document.createDocumentFragment();
-  entries.forEach(({ result, localItem }) => {
-    if (localItem) {
-      const card = createRecommendationCard(localItem, __serverId, { showRating: false });
-      frag.appendChild(decorateAvailableCard(card));
-    } else {
-      frag.appendChild(createRequestCard(result, activeRequests));
-    }
+
+  appendSection(frag, {
+    title: L("buscarSectionAvailable", "En biblioteca"),
+    count: available.length,
+    variant: "available",
+    cards: available.map(({ localItem }) =>
+      decorateAvailableCard(createRecommendationCard(localItem, __serverId, { showRating: false }))),
   });
+
+  appendSection(frag, {
+    title: L("buscarSectionDiscover", "Descubre"),
+    count: missing.length,
+    variant: "discover",
+    cards: missing.map(({ result }) => createRequestCard(result, activeRequests)),
+  });
+
   grid.appendChild(frag);
 }
 
