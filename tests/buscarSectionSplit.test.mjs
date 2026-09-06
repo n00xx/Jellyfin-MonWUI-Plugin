@@ -167,6 +167,17 @@ async function loadBuscar({ matches = new Map(), items = [] } = {}) {
 }
 
 const seerrResult = (id, title) => ({ id, title, mediaType: "movie", year: "2024" });
+const tvResult = (id, title) => ({ id, title, mediaType: "tv", year: "2024" });
+
+// Names a rendered grid child. Type headings carry their own class, so they are distinguishable
+// from the availability headings above them and from the cards below.
+const label = (c) =>
+  c.className.includes("buscar-subsection-head")
+    ? "T:" + (c.innerHTML.includes("Series") ? "Series" : "Películas")
+  : c.className.includes("buscar-section-head--available") ? "H:available"
+  : c.className.includes("buscar-section-head--discover") ? "H:discover"
+  : c.className.includes("buscar-request-card") ? "card:request"
+  : "card:available";
 
 // --------------------------------------------------------------------------------------
 console.log("\nBuscar: library cross-reference cost stays constant");
@@ -174,22 +185,23 @@ console.log("\nBuscar: library cross-reference cost stays constant");
   installDomEnv();
   calls.batchLookups = 0; calls.batchLookupSizes = []; calls.apiRequests = [];
 
-  // RESULT_LIMIT caps how many cards get built (24). The point of these assertions is that the
+  // RESULT_LIMIT caps how many cards get built (40). The input deliberately overshoots it, so
+  // the cap is exercised rather than merely fitted. The point of these assertions is that the
   // *network* cost is one lookup no matter how many results arrive — so a reintroduced
   // per-title lookup fails here regardless of how fast it happens to run on this machine.
-  const results = Array.from({ length: 40 }, (_, i) => seerrResult(1000 + i, `Title ${i}`));
+  const results = Array.from({ length: 60 }, (_, i) => seerrResult(1000 + i, `Title ${i}`));
   const matches = new Map(results.filter((_, i) => i % 2 === 0).map((r) => [r.id, `item${r.id}`]));
   const items = Array.from(matches.values()).map((id) => ({ Id: id, Name: `Local ${id}` }));
 
   const mod = await loadBuscar({ matches, items });
   const entries = await mod.__annotate(results);
 
-  eq(calls.batchLookups, 1, "40 results cost exactly ONE batched TMDb lookup (not 40)");
+  eq(calls.batchLookups, 1, "60 results cost exactly ONE batched TMDb lookup (not 60)");
   eq(calls.apiRequests.length, 1, "hydrating the matches costs exactly ONE item request");
-  eq(entries.length, 24, "the result set is capped at RESULT_LIMIT cards");
-  eq(calls.batchLookupSizes, [24], "only the ids that will actually render are looked up");
-  eq(entries.filter((e) => e.localItem).length, 12, "library matches inside the cap are annotated");
-  eq(entries.filter((e) => !e.localItem).length, 12, "the rest stay requestable");
+  eq(entries.length, 40, "the result set is capped at RESULT_LIMIT cards");
+  eq(calls.batchLookupSizes, [40], "only the ids that will actually render are looked up");
+  eq(entries.filter((e) => e.localItem).length, 20, "library matches inside the cap are annotated");
+  eq(entries.filter((e) => !e.localItem).length, 20, "the rest stay requestable");
 
   // Cost must not grow with the size of the incoming result set.
   calls.batchLookups = 0; calls.apiRequests = [];
@@ -244,14 +256,98 @@ console.log("\nBuscar: results split into two labelled sections");
   eq(heads[0].innerHTML.includes(">1<"), true, "available count reflects the single match");
   eq(heads[1].innerHTML.includes(">2<"), true, "discover count reflects the two misses");
 
-  // Ordering: heading, then its own cards, then the next heading.
-  const order = grid.children.map((c) =>
-    c.className.includes("buscar-section-head--available") ? "H:available"
-    : c.className.includes("buscar-section-head--discover") ? "H:discover"
-    : c.className.includes("buscar-request-card") ? "card:request"
-    : "card:available");
-  eq(order, ["H:available", "card:available", "H:discover", "card:request", "card:request"],
-    "cards sit under their own heading, in bucket order");
+  // Ordering: availability heading, then a type heading, then that type's cards, then the next
+  // availability heading. Every result here is a movie, so each bucket opens exactly one group.
+  const order = grid.children.map(label);
+  eq(order, ["H:available", "T:Películas", "card:available",
+             "H:discover", "T:Películas", "card:request", "card:request"],
+    "cards sit under their own type heading, inside their own bucket");
+}
+
+// --------------------------------------------------------------------------------------
+console.log("\nBuscar: each bucket is subdivided into films and series");
+{
+  const doc = installDomEnv();
+  calls.serrRequestLists = 0;
+
+  // Two of each type in each bucket, interleaved on the way in, so a passing result means the
+  // grouping actually regrouped them rather than the input happening to arrive pre-sorted.
+  const results = [
+    tvResult(11, "Series A"),        // available
+    seerrResult(12, "Film A"),       // available
+    tvResult(13, "Series B"),        // discover
+    seerrResult(14, "Film B"),       // discover
+    seerrResult(15, "Film C"),       // available
+    tvResult(16, "Series C"),        // discover
+  ];
+  const matches = new Map([[11, "i11"], [12, "i12"], [15, "i15"]]);
+  const mod = await loadBuscar({
+    matches,
+    items: [
+      { Id: "i11", Name: "Series A", Type: "Series" },
+      { Id: "i12", Name: "Film A", Type: "Movie" },
+      { Id: "i15", Name: "Film C", Type: "Movie" },
+    ],
+  });
+
+  const grid = doc.createElement("div");
+  doc.body.appendChild(grid);
+  await mod.__renderEntries(grid, await mod.__annotate(results), 0);
+
+  eq(grid.children.map(label), [
+    "H:available", "T:Películas", "card:available", "card:available",
+                   "T:Series",    "card:available",
+    "H:discover",  "T:Películas", "card:request",
+                   "T:Series",    "card:request", "card:request",
+  ], "films group before series inside each bucket, and every card lands under its own type");
+
+  const subs = grid.querySelectorAll(".buscar-subsection-head");
+  eq(subs.length, 4, "one type heading per non-empty group, in both buckets");
+  eq(subs[0].innerHTML.includes(">2<"), true, "the available-films badge counts its own cards");
+  eq(subs[1].innerHTML.includes(">1<"), true, "the available-series badge counts its own cards");
+
+  // The availability badge must equal what is actually under it, not what was passed in.
+  const heads = grid.querySelectorAll(".buscar-section-head");
+  eq(heads[0].innerHTML.includes(">3<"), true, "'En biblioteca' counts both of its groups");
+  eq(heads[1].innerHTML.includes(">3<"), true, "'Descubre' counts both of its groups");
+}
+
+// --------------------------------------------------------------------------------------
+console.log("\nBuscar: the library item's own type decides which group its card joins");
+{
+  const doc = installDomEnv();
+  // Seerr calls this a film; the library match is a series. The card is built from the library
+  // item and opens a series, so filing it under "Películas" on Seerr's word would put the user
+  // one click away from something the heading said was not there.
+  const mod = await loadBuscar({
+    matches: new Map([[31, "i31"]]),
+    items: [{ Id: "i31", Name: "Actually A Series", Type: "Series" }],
+  });
+
+  const grid = doc.createElement("div");
+  doc.body.appendChild(grid);
+  await mod.__renderEntries(grid, await mod.__annotate([seerrResult(31, "Mislabelled")]), 0);
+
+  eq(grid.children.map(label), ["H:available", "T:Series", "card:available"],
+    "the local item's Type wins over the Seerr media type");
+}
+
+// --------------------------------------------------------------------------------------
+console.log("\nBuscar: a type with no results gets no type heading");
+{
+  const doc = installDomEnv();
+  const results = [tvResult(21, "Only A"), tvResult(22, "Only B")];
+  const mod = await loadBuscar({ matches: new Map(), items: [] });
+
+  const grid = doc.createElement("div");
+  doc.body.appendChild(grid);
+  await mod.__renderEntries(grid, await mod.__annotate(results), 0);
+
+  const subs = grid.querySelectorAll(".buscar-subsection-head");
+  eq(subs.length, 1, "an all-series result set renders exactly one type heading");
+  eq(subs[0].innerHTML.includes("Series"), true, "and it is the series one");
+  eq(grid.children.map(label), ["H:discover", "T:Series", "card:request", "card:request"],
+    "no empty 'Películas' heading over zero cards");
 }
 
 // --------------------------------------------------------------------------------------

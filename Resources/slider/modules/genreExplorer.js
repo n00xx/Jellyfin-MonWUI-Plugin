@@ -316,6 +316,36 @@ export function injectGEPerfStyles() {
     }
 
     .ge-card .cardBox:hover { transform: scale(1.01); }
+
+    /* Type headings for the studio grid. .ge-grid is a display:grid with auto-fill tracks, so
+       spanning every column is what makes the cards resume on a fresh row beneath the heading.
+       Injected here rather than added to the stylesheet because that sheet ships minified. */
+    .ge-section-head {
+      grid-column: 1 / -1;
+      display: flex; align-items: baseline; gap: 10px;
+      margin: 18px 2px 2px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(166,206,220,.16);
+    }
+    .ge-section-head--first {
+      margin-top: 2px; padding-top: 0; border-top: 0;
+    }
+    .ge-section-title {
+      margin: 0;
+      font-size: clamp(1rem, 1.5vw, 1.2rem);
+      font-weight: 800; letter-spacing: -.01em; line-height: 1.2;
+      color: #eef8fb;
+    }
+    .ge-section-count {
+      font-size: 11px; font-weight: 800; line-height: 1;
+      padding: 4px 8px; border-radius: 999px;
+      color: rgba(227,243,248,.72);
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(166,206,220,.18);
+    }
+    @media (max-width: 640px) {
+      .ge-section-head { margin-top: 12px; padding-top: 10px; }
+    }
   `;
   document.head.appendChild(st);
 }
@@ -1163,6 +1193,18 @@ let __s_io = null;
 let __s_isClosing = false;
 let __s_studio = { name: "", studioIds: [] };
 
+// The grid is grouped by type: every film first, then every series. That needs two paginators
+// rather than one, because a single Movie,Series query interleaves the two by rating and no
+// client-side sort can group what has not been fetched yet. __s_phase indexes this list and
+// equals its length once both have drained.
+const S_PHASES = ["Movie", "Series"];
+let __s_phase = 0;
+
+function s_phaseLabel(type) {
+  const labels = getConfig()?.languageLabels || {};
+  return type === "Movie" ? (labels.sectionMovies || "Filmler") : (labels.sectionSeries || "Diziler");
+}
+
 function s_playOpenAnimation(overlayEl) {
   const dialog = overlayEl.querySelector('.genre-explorer');
   const origin = __originPoint || { x: (window.innerWidth / 2) | 0, y: (window.innerHeight / 2) | 0 };
@@ -1202,7 +1244,14 @@ function s_animatedCloseThen(cb) {
 function s_escCloser(e) { if (e.key === 'Escape') s_animatedCloseThen(); }
 function s_hashCloser() { s_animatedCloseThen(); }
 
-function s_renderIntoGrid(items) {
+/**
+ * Appends one page of results, optionally preceded by the heading that opens its type group.
+ *
+ * The heading always arrives in the same batch as at least one card. That keeps two things
+ * true at once: a studio with no films never gets an empty "Films" heading, and the empty-state
+ * check below never mistakes a heading for content.
+ */
+function s_renderIntoGrid(items, heading) {
   const grid = __s_overlay.querySelector('.ge-grid');
   const empty = __s_overlay.querySelector('.ge-empty');
 
@@ -1213,23 +1262,40 @@ function s_renderIntoGrid(items) {
   empty.style.display = 'none';
 
   const frag = document.createDocumentFragment();
+  if (heading) {
+    const opensGrid = !grid.querySelector('.ge-section-head');
+    const head = document.createElement('div');
+    head.className = `ge-section-head${opensGrid ? ' ge-section-head--first' : ''}`;
+    head.setAttribute('role', 'presentation');
+    head.innerHTML = `
+      <h3 class="ge-section-title">${escapeHtml(heading.title)}</h3>
+      <span class="ge-section-count">${heading.count}</span>
+    `;
+    frag.appendChild(head);
+  }
   for (const it of items) frag.appendChild(createCardFor(it));
   grid.appendChild(frag);
+  // Reads __overlay, the *genre* overlay, so it is a no-op on this path today. Left alone: if
+  // that is ever corrected, note that it drops firstElementChild in a loop and would eat these
+  // headings, reparenting the cards below them under the wrong group.
   pruneGridIfNeeded();
 }
 
 async function s_loadMore() {
   if (!__s_overlay || __s_busy) return;
   if (!__s_studio.studioIds.length) return;
+  if (__s_phase >= S_PHASES.length) return;
   __s_busy = true;
 
   if (__s_abort) { try { __s_abort.abort(); } catch {} }
   __s_abort = new AbortController();
 
   const LIMIT = 40;
+  const phaseType = S_PHASES[__s_phase];
+  const opensPhase = __s_startIndex === 0;
   const { userId } = getSessionInfo();
   const params = new URLSearchParams();
-  params.set("IncludeItemTypes", "Movie,Series");
+  params.set("IncludeItemTypes", phaseType);
   params.set("Recursive", "true");
   params.set("Fields", COMMON_FIELDS);
   params.set("SortBy", "CommunityRating,DateCreated");
@@ -1240,15 +1306,32 @@ async function s_loadMore() {
   // silently returns unrelated items.
   params.set("StudioIds", __s_studio.studioIds.join(","));
 
-  let exhausted = false;
+  let advanced = false;
   try {
     const data = await makeApiRequest(`/Users/${encodeURIComponent(userId)}/Items?${params}`, { signal: __s_abort.signal });
     const items = Array.isArray(data?.Items) ? data.Items : [];
-    s_renderIntoGrid(items);
+
+    // TotalRecordCount is the size of the whole type group, not of this page, so the badge is
+    // right from the first batch. Fall back to the page size rather than render a bare or zero
+    // count if the server omits it.
+    const total = Number(data?.TotalRecordCount);
+    const heading = opensPhase && items.length
+      ? { title: s_phaseLabel(phaseType), count: Number.isFinite(total) && total > 0 ? total : items.length }
+      : null;
+
+    s_renderIntoGrid(items, heading);
     __s_startIndex += items.length;
+
     if (items.length < LIMIT) {
-      exhausted = true;
-      try { __s_io?.disconnect(); } catch {}
+      // A short page means *this type* has drained, not the grid. Advancing here instead of
+      // disconnecting the observer is what lets series load at all — disconnecting at the end
+      // of the films would strand the second half behind an event that can no longer fire.
+      __s_phase += 1;
+      __s_startIndex = 0;
+      advanced = true;
+      if (__s_phase >= S_PHASES.length) {
+        try { __s_io?.disconnect(); } catch {}
+      }
     }
   } catch (e) {
     if (e?.name !== 'AbortError') console.error("Studio explorer fetch error:", e);
@@ -1256,11 +1339,16 @@ async function s_loadMore() {
     __s_busy = false;
   }
 
-  if (!exhausted && __s_overlay) {
-    const scroller = __s_overlay.querySelector('.ge-content');
-    const sentinel = __s_overlay.querySelector('.ge-sentinel');
-    if (isSentinelStillInRange(scroller, sentinel)) s_loadMore();
-  }
+  if (!__s_overlay || __s_phase >= S_PHASES.length) return;
+
+  // Crossing a phase boundary has to pull the next type's first page itself. The sentinel does
+  // not move when a phase ends, so no new intersection is coming, and waiting for one would
+  // hide the series behind a scroll the user has no reason to make.
+  if (advanced) { s_loadMore(); return; }
+
+  const scroller = __s_overlay.querySelector('.ge-content');
+  const sentinel = __s_overlay.querySelector('.ge-sentinel');
+  if (isSentinelStillInRange(scroller, sentinel)) s_loadMore();
 }
 
 export function openStudioExplorer(studio) {
@@ -1269,6 +1357,7 @@ export function openStudioExplorer(studio) {
   const studioIds = [...new Set((studio?.studioIds || []).map(id => String(id || "").trim()).filter(Boolean))];
   __s_studio = { name: String(studio?.name || ""), studioIds };
   __s_startIndex = 0;
+  __s_phase = 0;
 
   __s_overlay = document.createElement('div');
   __s_overlay.className = 'genre-explorer-overlay';
@@ -1345,6 +1434,7 @@ export function closeStudioExplorer(skipAnimation = false) {
     __s_overlay = null;
     __s_busy = false;
     __s_startIndex = 0;
+    __s_phase = 0;
     __s_isClosing = false;
     __s_studio = { name: "", studioIds: [] };
   };

@@ -263,6 +263,9 @@ export const languageLabels = {
   buscarNotConfigured: "La búsqueda de Seerr/Arr no está configurada en este servidor.",
   buscarSectionAvailable: "En biblioteca",
   buscarSectionDiscover: "Descubre",
+  // Compartidas por los grupos de resultados de Buscar y los encabezados por tipo del explorador de estudios.
+  sectionMovies: "Películas",
+  sectionSeries: "Series",
   buscarAvailableBadge: "Ya disponible",
   buscarRequestBadge: "Solicitar",
   buscarRequestedBadge: "Solicitado",

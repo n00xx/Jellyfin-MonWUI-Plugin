@@ -28,11 +28,14 @@ import {
 
 const SEARCH_DEBOUNCE_MS = 320;
 // This no longer bounds network fan-out — the library cross-reference is one batched request
-// regardless of size (see searchJellyfinByTmdbIds). What it still bounds is card construction:
-// every result builds a real card with its own poster and listeners, and that cost has not been
-// measured against a full library. Raising it is safe on the network side and untested on the
-// render side, so it stays where it was until the render cost is measured on a live server.
-const RESULT_LIMIT = 24;
+// regardless of size (see searchJellyfinByTmdbIds). What it still bounds is card construction.
+// The render cost was the open question that kept this at 24: every result builds a real card
+// with its own poster and listeners. It is answered by what the rest of the UI already does —
+// the home page builds several rows of ten from this same createRecommendationCard on every
+// load, and the explorer grids append pages of forty. Forty is inside that envelope, and two
+// Seerr pages are already fetched and then two thirds of them thrown away, so covering the
+// whole result set costs nothing extra on the wire.
+const RESULT_LIMIT = 40;
 const STYLE_ID = "monwui-buscar-style";
 
 let __overlay = null;
@@ -132,8 +135,32 @@ function ensureBuscarStyles() {
     .buscar-overlay .buscar-section-head--discover .buscar-section-count {
       color: #fff; background: linear-gradient(135deg,#b98bff,#7c3aed); border-color: transparent;
     }
+    /* Type headings sit one level under the availability headings, so they read as a
+       subdivision of the group above rather than as a peer of it: smaller, lighter, indented,
+       and with no rule above them. */
+    .buscar-overlay .buscar-subsection-head {
+      grid-column: 1 / -1;
+      display: flex; align-items: baseline; gap: 8px;
+      margin: 10px 2px 0 10px;
+    }
+    .buscar-overlay .buscar-subsection-head--first { margin-top: 4px; }
+    .buscar-overlay .buscar-subsection-title {
+      margin: 0;
+      font-size: clamp(.82rem, 1vw, .94rem);
+      font-weight: 700; letter-spacing: .01em; line-height: 1.2;
+      text-transform: uppercase;
+      color: rgba(227,243,248,.62);
+    }
+    .buscar-overlay .buscar-subsection-count {
+      font-size: 10px; font-weight: 700; line-height: 1;
+      padding: 3px 7px; border-radius: 999px;
+      color: rgba(227,243,248,.6);
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(166,206,220,.14);
+    }
     @media (max-width: 640px) {
       .buscar-overlay .buscar-section-head--discover { margin-top: 16px; padding-top: 14px; }
+      .buscar-overlay .buscar-subsection-head { margin-left: 4px; }
     }
     #monwuiBuscarConfirmModal {
       align-items: center; backdrop-filter: blur(14px);
@@ -428,22 +455,53 @@ async function fetchActiveSerrRequests() {
 }
 
 /**
- * Emits a section heading spanning the full grid row, followed by its cards. Renders nothing at
- * all when the bucket is empty — a heading over zero results is exactly the noise these sections
- * exist to remove.
+ * "movie" or "tv" for one entry. The local item wins when there is one — its Type is what the
+ * rendered card actually opens — and the Seerr media type covers everything else. runSearch has
+ * already dropped every result that is neither, so this partition is exhaustive and no entry can
+ * fall out of the grid between the two groups.
  */
-function appendSection(frag, { title, count, variant, cards }) {
-  if (!cards.length) return;
+function entryMediaType(entry) {
+  const localType = String(entry?.localItem?.Type || "");
+  if (localType === "Movie") return "movie";
+  if (localType === "Series") return "tv";
+  return resultMediaType(entry?.result);
+}
+
+/**
+ * Emits an availability heading spanning the full grid row, then one type heading per non-empty
+ * group beneath it, each followed by its cards. Renders nothing at all when every group is empty
+ * — a heading over zero results is exactly the noise these sections exist to remove, and that
+ * applies to the type headings as much as to the availability heading above them.
+ *
+ * The count on each heading is derived from the cards actually appended rather than passed in,
+ * so a badge can never disagree with what is under it.
+ */
+function appendSection(frag, { title, variant, groups }) {
+  const filled = groups.filter((group) => group.cards.length);
+  if (!filled.length) return;
+
+  const total = filled.reduce((sum, group) => sum + group.cards.length, 0);
 
   const head = document.createElement("div");
   head.className = `buscar-section-head buscar-section-head--${variant}`;
   head.setAttribute("role", "presentation");
   head.innerHTML = `
     <h3 class="buscar-section-title">${escapeHtml(title)}</h3>
-    <span class="buscar-section-count">${count}</span>
+    <span class="buscar-section-count">${total}</span>
   `;
   frag.appendChild(head);
-  cards.forEach((card) => frag.appendChild(card));
+
+  filled.forEach((group, index) => {
+    const sub = document.createElement("div");
+    sub.className = `buscar-subsection-head${index === 0 ? " buscar-subsection-head--first" : ""}`;
+    sub.setAttribute("role", "presentation");
+    sub.innerHTML = `
+      <h4 class="buscar-subsection-title">${escapeHtml(group.title)}</h4>
+      <span class="buscar-subsection-count">${group.cards.length}</span>
+    `;
+    frag.appendChild(sub);
+    group.cards.forEach((card) => frag.appendChild(card));
+  });
 }
 
 async function renderEntries(grid, entries, token) {
@@ -467,19 +525,43 @@ async function renderEntries(grid, entries, token) {
 
   const frag = document.createDocumentFragment();
 
+  // Type is the second axis, nested under availability rather than replacing it: which of these
+  // you already have and which you would have to request is the distinction the sections exist
+  // for, and grouping by type instead of under it would throw that away.
+  const ofType = (bucket, type) => bucket.filter((entry) => entryMediaType(entry) === type);
+  const moviesLabel = L("sectionMovies", "Películas");
+  const seriesLabel = L("sectionSeries", "Series");
+
   appendSection(frag, {
     title: L("buscarSectionAvailable", "En biblioteca"),
-    count: available.length,
     variant: "available",
-    cards: available.map(({ localItem }) =>
-      decorateAvailableCard(createRecommendationCard(localItem, __serverId, { showRating: false }))),
+    groups: [
+      {
+        title: moviesLabel,
+        cards: ofType(available, "movie").map(({ localItem }) =>
+          decorateAvailableCard(createRecommendationCard(localItem, __serverId, { showRating: false }))),
+      },
+      {
+        title: seriesLabel,
+        cards: ofType(available, "tv").map(({ localItem }) =>
+          decorateAvailableCard(createRecommendationCard(localItem, __serverId, { showRating: false }))),
+      },
+    ],
   });
 
   appendSection(frag, {
     title: L("buscarSectionDiscover", "Descubre"),
-    count: missing.length,
     variant: "discover",
-    cards: missing.map(({ result }) => createRequestCard(result, activeRequests)),
+    groups: [
+      {
+        title: moviesLabel,
+        cards: ofType(missing, "movie").map(({ result }) => createRequestCard(result, activeRequests)),
+      },
+      {
+        title: seriesLabel,
+        cards: ofType(missing, "tv").map(({ result }) => createRequestCard(result, activeRequests)),
+      },
+    ],
   });
 
   grid.appendChild(frag);
