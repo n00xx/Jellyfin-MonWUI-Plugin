@@ -320,31 +320,38 @@ export function injectGEPerfStyles() {
     /* Type headings for the studio grid. .ge-grid is a display:grid with auto-fill tracks, so
        spanning every column is what makes the cards resume on a fresh row beneath the heading.
        Injected here rather than added to the stylesheet because that sheet ships minified. */
+    /* Same leading accent rule and uppercase label as Buscar's type headings. The two grids
+       are different surfaces but the same idea — "this group is films, that one is series" —
+       so they get one signature; only the scale differs, this being the grid's own heading
+       level rather than a subdivision under another title. The hairline above is gone: 22px
+       and an accent bar separate the groups without adding a second rule per type. */
     .ge-section-head {
       grid-column: 1 / -1;
-      display: flex; align-items: baseline; gap: 10px;
-      margin: 18px 2px 2px;
-      padding-top: 14px;
-      border-top: 1px solid rgba(166,206,220,.16);
+      display: flex; align-items: center; gap: 10px;
+      margin: 22px 2px 2px;
+      padding: 1px 0 1px 10px;
+      border-left: 3px solid rgba(166,206,220,.5);
     }
     .ge-section-head--first {
-      margin-top: 2px; padding-top: 0; border-top: 0;
+      margin-top: 2px;
     }
     .ge-section-title {
       margin: 0;
-      font-size: clamp(1rem, 1.5vw, 1.2rem);
-      font-weight: 800; letter-spacing: -.01em; line-height: 1.2;
-      color: #eef8fb;
+      font-size: clamp(.92rem, 1.15vw, 1.04rem);
+      font-weight: 700; letter-spacing: .09em; line-height: 1.25;
+      text-transform: uppercase;
+      color: rgba(238,248,251,.92);
     }
     .ge-section-count {
       font-size: 11px; font-weight: 800; line-height: 1;
       padding: 4px 8px; border-radius: 999px;
-      color: rgba(227,243,248,.72);
-      background: rgba(255,255,255,.08);
-      border: 1px solid rgba(166,206,220,.18);
+      color: rgba(227,243,248,.82);
+      background: rgba(255,255,255,.1);
+      border: 1px solid rgba(166,206,220,.22);
     }
     @media (max-width: 640px) {
-      .ge-section-head { margin-top: 12px; padding-top: 10px; }
+      .ge-section-head { margin-top: 18px; padding-left: 8px; }
+      .ge-section-head--first { margin-top: 2px; }
     }
   `;
   document.head.appendChild(st);
@@ -1191,7 +1198,7 @@ let __s_busy = false;
 let __s_startIndex = 0;
 let __s_io = null;
 let __s_isClosing = false;
-let __s_studio = { name: "", studioIds: [] };
+let __s_studio = { name: "", studioIds: [], seriesTags: [] };
 
 // The grid is grouped by type: every film first, then every series. That needs two paginators
 // rather than one, because a single Movie,Series query interleaves the two by rating and no
@@ -1302,9 +1309,23 @@ async function s_loadMore() {
   params.set("SortOrder", "Descending");
   params.set("Limit", String(LIMIT));
   params.set("StartIndex", String(__s_startIndex));
-  // Comma-separated only. A pipe-separated value does not OR the studios, it
-  // silently returns unrelated items.
-  params.set("StudioIds", __s_studio.studioIds.join(","));
+
+  // A film brand's series are not reachable through its studios: TMDB writes the
+  // broadcasting network onto a series, not the production company, so "Marvel Studios"
+  // resolves to every Marvel film and zero Marvel shows. When the brand has a franchise
+  // keyword in this library, the series phase filters on that instead — it is the precise
+  // signal, where unioning the networks would drag a whole platform's catalogue in.
+  //
+  // The two filters are alternatives, never combined: a brand only has tags because its
+  // series are absent from the studio axis, so ANDing them would return nothing.
+  const seriesTags = phaseType === "Series" ? (__s_studio.seriesTags || []) : [];
+  if (seriesTags.length) {
+    params.set("Tags", seriesTags.join("|"));
+  } else {
+    // Comma-separated only. A pipe-separated value does not OR the studios, it
+    // silently returns unrelated items.
+    params.set("StudioIds", __s_studio.studioIds.join(","));
+  }
 
   let advanced = false;
   try {
@@ -1355,7 +1376,8 @@ export function openStudioExplorer(studio) {
   if (__s_overlay) { try { closeStudioExplorer(true); } catch {} }
 
   const studioIds = [...new Set((studio?.studioIds || []).map(id => String(id || "").trim()).filter(Boolean))];
-  __s_studio = { name: String(studio?.name || ""), studioIds };
+  const seriesTags = [...new Set((studio?.seriesTags || []).map(t => String(t || "").trim()).filter(Boolean))];
+  __s_studio = { name: String(studio?.name || ""), studioIds, seriesTags };
   __s_startIndex = 0;
   __s_phase = 0;
 
@@ -1436,7 +1458,7 @@ export function closeStudioExplorer(skipAnimation = false) {
     __s_startIndex = 0;
     __s_phase = 0;
     __s_isClosing = false;
-    __s_studio = { name: "", studioIds: [] };
+    __s_studio = { name: "", studioIds: [], seriesTags: [] };
   };
 
   if (skipAnimation) { cleanup(); return; }

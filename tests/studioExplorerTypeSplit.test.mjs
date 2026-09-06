@@ -180,6 +180,7 @@ async function loadExplorer(library) {
         startIndex: Number(q.get("StartIndex")),
         limit: Number(q.get("Limit")),
         studioIds: q.get("StudioIds"),
+        tags: q.get("Tags"),
       });
       const all = globalThis.__studioLibrary[q.get("IncludeItemTypes")] || [];
       const start = Number(q.get("StartIndex"));
@@ -356,6 +357,59 @@ console.log("\nStudio explorer: an empty studio still shows the empty state");
 
   eq(grid.children.length, 0, "no headings are left stranded over an empty grid");
   eq(document.body.querySelector(".ge-empty").style.display, "", "the empty state is visible");
+}
+
+// --------------------------------------------------------------------------------------
+// A film brand reaches its series through the library's franchise keyword, not its studios:
+// TMDB writes the broadcasting network onto a series, so StudioIds for "Marvel Studios"
+// returns 55 films and 0 shows. The two filters are alternatives — ANDing them would return
+// nothing, since a brand only carries tags because its series are absent from the studio axis.
+console.log("\nStudio explorer: a tagged brand switches axis for the series phase only");
+{
+  installDomEnv();
+  const { mod, requests } = await loadExplorer({
+    Movie: Array.from({ length: 4 }, (_, i) => item("Movie", i)),
+    Series: Array.from({ length: 3 }, (_, i) => item("Series", i)),
+  });
+
+  mod.openStudioExplorer({
+    name: "Marvel Studios",
+    studioIds: ["s1", "s2"],
+    seriesTags: ["marvel cinematic universe (mcu)"],
+  });
+  const grid = document.body.querySelector(".ge-grid");
+  await settle(grid);
+
+  const films = requests.filter((r) => r.types === "Movie");
+  const shows = requests.filter((r) => r.types === "Series");
+  eq(films.length > 0, true, "the films phase ran");
+  eq(shows.length > 0, true, "the series phase ran");
+
+  eq(films[0].studioIds, "s1,s2", "films still filter on the studio axis");
+  eq(films[0].tags, null, "films must not be narrowed by a franchise keyword");
+
+  eq(shows[0].tags, "marvel cinematic universe (mcu)", "series filter on the tag axis");
+  eq(shows[0].studioIds, null, "the studio filter is replaced, not combined");
+
+  eq(headings(grid).length, 2, "both type headings still render");
+  eq(shape(grid).length, 9, "four films, three series, one heading each");
+}
+
+// --------------------------------------------------------------------------------------
+console.log("\nStudio explorer: an untagged brand keeps both phases on the studio axis");
+{
+  installDomEnv();
+  const { mod, requests } = await loadExplorer({
+    Movie: [item("Movie", 0)],
+    Series: [item("Series", 0)],
+  });
+
+  // Netflix and Disney+ *are* networks, so their series resolve through StudioIds already.
+  mod.openStudioExplorer({ name: "Netflix", studioIds: ["s5"] });
+  await settle(document.body.querySelector(".ge-grid"));
+
+  eq(requests.every((r) => r.studioIds === "s5"), true, "every phase kept the studio filter");
+  eq(requests.every((r) => r.tags === null), true, "no phase invented a tag filter");
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll studio explorer type-split tests passed.");

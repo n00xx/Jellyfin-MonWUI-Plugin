@@ -23,13 +23,39 @@ function nameKey(value) {
  * - `includeAll` — entity matches only if EVERY pattern hits
  * - `exclude`    — entity is rejected if ANY pattern hits (wins over include)
  * - `aliases`    — extra spellings for canonicalization and TMDB logo lookup
+ * - `seriesTags` — patterns matched against the library's *tag* vocabulary, not
+ *                  against studio entities. See below.
+ *
+ * ## Why series need a second axis
+ *
+ * A brand's films carry it as a studio; its series usually do not. TMDB and TVDB
+ * write the broadcasting *network* onto a series, not the production company, so
+ * `StudioIds` for "Marvel Studios" returns every Marvel film and zero Marvel
+ * series — the shows are filed under Disney+, Netflix, ABC, Hulu and FX. Unioning
+ * those networks into the brand is not a fix: it would pull a platform's entire
+ * catalogue into a hub (measured on the reference library: Netflix alone holds 102
+ * series, of which six are Marvel).
+ *
+ * The precise signal is the TMDB keyword, which Jellyfin imports as a tag —
+ * "marvel cinematic universe (mcu)" sits on exactly the 16 Marvel series and on
+ * nothing else.
+ *
+ * `seriesTags` patterns MUST be specific to the franchise, never derived from the
+ * brand name. Tag vocabularies are far noisier than studio names: a bare /dc/ over
+ * the reference library's 1824 tags hits "washington dc, usa" (a filming location)
+ * and "based on po(dc)ast". Same trap as the studio rules, one namespace over.
+ *
+ * A brand with no `seriesTags` keeps matching series by `StudioIds` alone. That is
+ * correct for the brands that *are* networks — Netflix and Disney+ resolve their
+ * series through the studio axis already.
  */
 export const STUDIO_BRANDS = [
   {
     canonical: "Marvel Studios",
     aliases: ["marvel", "marvel entertainment", "marvel studios llc"],
     include: [/\bmarvel\b/],
-    exclude: [/\bmarvel\s+music\b/]
+    exclude: [/\bmarvel\s+music\b/],
+    seriesTags: [/\bmarvel\b/]
   },
   {
     canonical: "Pixar",
@@ -51,6 +77,9 @@ export const STUDIO_BRANDS = [
   },
   {
     canonical: "DC",
+    // No bare /dc/ here: it hits "washington dc, usa" and "based on podcast".
+    // Each pattern names the franchise outright.
+    seriesTags: [/\bdc\s+universe\b/, /\bdc\s+extended\s+universe\b/, /\bdceu\b/, /\bdcu\b/],
     aliases: ["dc entertainment", "dc comics"],
     include: [/\bdc\b/]
   },
@@ -62,7 +91,12 @@ export const STUDIO_BRANDS = [
   {
     canonical: "Lucasfilm Ltd.",
     aliases: ["lucasfilm", "lucasfilm ltd"],
-    include: [/\blucasfilm\b/]
+    include: [/\blucasfilm\b/],
+    // Partial by nature: on the reference library only one of six Star Wars series
+    // carries the keyword. One is still more than the zero the studio axis returns,
+    // and a looser pattern would cost precision without recovering the rest —
+    // "The Mandalorian" and "Andor" carry neither the tag nor the studio.
+    seriesTags: [/\bstar\s+wars\b/]
   },
   {
     canonical: "Columbia Pictures",
@@ -161,6 +195,35 @@ function studioEntityMatchesBrand(brand, entityName) {
   if (include.length && include.some((rx) => rx.test(key))) return true;
 
   return false;
+}
+
+/**
+ * The library's own tags that identify `brandName`'s series, as literal tag names.
+ *
+ * Returns the tags themselves rather than the patterns because the query filters on exact
+ * names — matching against the vocabulary the server reports keeps this working across
+ * libraries whose keyword casing or wording differs, instead of pinning one spelling.
+ *
+ * An empty result is a normal answer, not a failure: it means the brand has no franchise
+ * keyword in this library, and its series stay on the studio axis.
+ */
+export function resolveStudioBrandSeriesTags(brandName, availableTags = []) {
+  const brand = findStudioBrand(brandName);
+  const patterns = brand?.seriesTags || [];
+  if (!patterns.length) return [];
+
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(availableTags) ? availableTags : []) {
+    const tag = String(raw || "").trim();
+    if (!tag) continue;
+    const key = normalizeStudioName(tag);
+    if (!key || seen.has(key)) continue;
+    if (!patterns.some((rx) => rx.test(key))) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out;
 }
 
 /**

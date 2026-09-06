@@ -4,7 +4,8 @@ import {
   getCanonicalStudioHubName,
   normalizeStudioName,
   resolveStudioBrandEntities,
-  resolveStudioBrandMap
+  resolveStudioBrandMap,
+  resolveStudioBrandSeriesTags
 } from "./studioBrands.js";
 import { fetchJmsPluginConfig, getGlobalTmdbApiKey } from "./jmsPluginConfig.js";
 import { getConfig } from "./config.js";
@@ -16,7 +17,8 @@ export {
   getCanonicalStudioHubName,
   normalizeStudioName,
   resolveStudioBrandEntities,
-  resolveStudioBrandMap
+  resolveStudioBrandMap,
+  resolveStudioBrandSeriesTags
 };
 
 export const JMS_STUDIO_HUB_MANUAL_ENTRY_ADDED_EVENT = "jms:studio-hub-manual-entry-added";

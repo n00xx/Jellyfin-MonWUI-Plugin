@@ -31,7 +31,8 @@ import {
   sanitizeStudioHubHiddenNames,
   sanitizeStudioHubOrderNames,
   getCanonicalStudioHubName,
-  resolveStudioBrandEntities
+  resolveStudioBrandEntities,
+  resolveStudioBrandSeriesTags
 } from "./studioHubsShared.js";
 
 const config = getConfig();
@@ -51,6 +52,7 @@ const IMG_TTL   = 7  * 24 * 60 * 60 * 1000;
 const LS_KEY    = "studioHub_cache_v6";
 const MAP_KEY   = "studioHub_nameIdMap_v6";
 const IMG_KEY   = "studioHub_backdropMap_v2";
+const TAGS_KEY  = "studioHub_seriesTags_v1";
 const STUDIO_ITEMS_LIMIT = 24;
 const STUDIO_RENDER_CONCURRENCY = 4;
 const STUDIO_PAGE_SIZE = 1000;
@@ -138,9 +140,12 @@ function toCanonicalStudioName(name) {
  * Left-click opens the multi-studio explorer; modified and middle clicks fall
  * through to the href so "open in new tab" still works on the primary entity.
  */
-function bindStudioExplorerCard(card, { name, studioIds }) {
+function bindStudioExplorerCard(card, { name, studioIds, seriesTags }) {
   if (!card || !studioIds?.length) return;
   card.__jmsStudioIds = studioIds;
+  // Read off the card at click time, like studioIds: a later render pass refreshes both,
+  // and a listener bound once must not close over the first pass's values.
+  card.__jmsSeriesTags = Array.isArray(seriesTags) ? seriesTags : [];
   if (card.__jmsStudioExplorerBound) return;
   card.__jmsStudioExplorerBound = true;
 
@@ -149,7 +154,11 @@ function bindStudioExplorerCard(card, { name, studioIds }) {
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     if (e.target?.closest?.(".hub-preview-btn")) return;
     e.preventDefault();
-    openStudioExplorer({ name, studioIds: card.__jmsStudioIds });
+    openStudioExplorer({
+      name,
+      studioIds: card.__jmsStudioIds,
+      seriesTags: card.__jmsSeriesTags
+    });
   });
 }
 
@@ -227,15 +236,44 @@ function randomSample(arr, n) {
   }
   return a.slice(0, Math.max(0, n));
 }
+/**
+ * Preview picks, chosen per type so a brand's series survive the rating threshold.
+ *
+ * The threshold used to run over the pooled list, which made the preview films-only for
+ * any brand holding both: Jellyfin leaves `CommunityRating` unset on many series, `getRating`
+ * scores those 0, and the unfiltered fallback only fired when *nothing* cleared the bar — so
+ * one qualifying film was enough to drop every series. Filtering within each type, and falling
+ * back within each type, is what keeps both represented.
+ *
+ * Order stays films-then-series, the grouping the explorer grid already uses.
+ */
 function selectTopNWithMinRating(items, min = MIN_RATING, count = 5) {
   const list = Array.isArray(items) ? items : [];
-  // Fall back to the unfiltered pool rather than returning nothing: an empty
+  if (list.length <= count) return list;
+
+  const movies = [];
+  const series = [];
+  for (const it of list) (it?.Type === "Series" ? series : movies).push(it);
+
+  // Fall back to the type's unfiltered pool rather than returning nothing: an empty
   // result here used to blank the preview for any brand whose titles all sat
   // below the rating threshold.
-  const filtered = list.filter(it => getRating(it) >= min);
-  const pool = filtered.length ? filtered : list;
-  if (pool.length <= count) return pool;
-  return randomSample(pool, count);
+  const qualify = (group) => {
+    const filtered = group.filter(it => getRating(it) >= min);
+    return filtered.length ? filtered : group;
+  };
+  const topMovies = qualify(movies);
+  const topSeries = qualify(series);
+
+  if (!topSeries.length) return randomSample(topMovies, count);
+  if (!topMovies.length) return randomSample(topSeries, count);
+
+  // Both types exist, so neither may be squeezed out of a five-card preview. Split by how
+  // much of the brand each type is, then guarantee the smaller side at least one slot.
+  const share = Math.round(count * topSeries.length / (topSeries.length + topMovies.length));
+  const seriesSlots = Math.min(topSeries.length, count - 1, Math.max(1, share));
+  const movieSlots = Math.min(topMovies.length, count - seriesSlots);
+  return [...randomSample(topMovies, movieSlots), ...randomSample(topSeries, count - movieSlots)];
 }
 
 function isLocalStudioAssetUrl(url) {
@@ -552,8 +590,18 @@ function createPreviewButton(card, studioName, studioIds, userId) {
     btn.style.opacity = '0.5';
     try {
       const signal = __fetchAbort ? __fetchAbort.signal : null;
-      const fetched = await fetchStudioItemsViaUsers(studioIds, studioName, userId, signal);
-      studioItems = selectTopNWithMinRating(fetched, MIN_RATING, 5);
+      // One request per type, in parallel. A single Movie,Series call sorted by rating
+      // returns the top-rated titles overall, and series routinely carry no
+      // CommunityRating — so that one page can come back films-only before the
+      // selection below ever gets to choose.
+      const [films, shows] = await Promise.all([
+        fetchStudioItemsViaUsers(studioIds, studioName, userId, signal, { itemTypes: "Movie" }),
+        fetchStudioItemsViaUsers(studioIds, studioName, userId, signal, {
+          itemTypes: "Series",
+          tags: card.__jmsSeriesTags || []
+        })
+      ]);
+      studioItems = selectTopNWithMinRating([...films, ...shows], MIN_RATING, 5);
     } catch (err) {
       console.error('Ön izleme verileri alınamadı:', err);
       studioItems = [];
@@ -785,6 +833,31 @@ async function fetchStudios(signal, userId) {
   return out;
 }
 
+/**
+ * The library's series tag vocabulary, cached for a day.
+ *
+ * `/Items/Filters` returns every tag in one response — 1824 of them on the reference
+ * library — so this runs once per render pass and is shared by every brand rather than
+ * queried per hub. A failure is not fatal: brands fall back to the studio axis, which is
+ * exactly how they behaved before tags existed.
+ */
+async function fetchSeriesTagVocabulary(userId, signal) {
+  const cached = loadCache(TAGS_KEY, CACHE_TTL);
+  if (Array.isArray(cached)) return cached;
+
+  try {
+    const params = new URLSearchParams({ userId, IncludeItemTypes: "Series" });
+    const r = await fetch(withServer(`/Items/Filters?${params}`), { headers: hJSON(), signal, credentials: 'same-origin' });
+    if (!r.ok) return [];
+    const data = await r.json();
+    const tags = Array.isArray(data?.Tags) ? data.Tags.filter(Boolean).map(String) : [];
+    saveCache(TAGS_KEY, tags);
+    return tags;
+  } catch {
+    return [];
+  }
+}
+
 function toStudioIdList(studioIds) {
   const list = Array.isArray(studioIds) ? studioIds : [studioIds];
   return [...new Set(list.map(id => String(id || "").trim()).filter(Boolean))];
@@ -799,21 +872,37 @@ function toStudioIdList(studioIds) {
  * `minRating` is opt-in. It used to be baked into every call, including the one
  * that decides whether a card exists at all, so a brand whose titles all sat
  * below the threshold silently lost its card.
+ *
+ * `SortBy` is not optional. `SortOrder: Descending` on its own does not mean
+ * "best first" — with no sort key Jellyfin falls back to SortName, so the cap of
+ * `limit` items returned the brand's alphabetically *last* titles and called them
+ * a sample. The card-existence check below reads the same call, so this was not
+ * only a preview problem.
+ *
+ * `itemTypes` narrows the query to one type. Callers that need both types
+ * represented must ask for each separately: a single Movie,Series call sorted by
+ * rating fills its page with whatever scores highest overall, and Jellyfin leaves
+ * `CommunityRating` unset on many series, so that page can come back films-only.
  */
 async function fetchStudioItemsViaUsers(studioIds, studioName, userId, signal, options = {}) {
   const ids = toStudioIdList(studioIds);
   if (!ids.length) return [];
 
   const limit = Math.max(1, Math.min(STUDIO_ITEMS_LIMIT, Number(options.limit) || STUDIO_ITEMS_LIMIT));
+  const tags = (options.tags || []).filter(Boolean);
   const params = new URLSearchParams({
     StartIndex: "0",
     Limit: String(limit),
     Fields: "PrimaryImageAspectRatio,ImageTags,BackdropImageTags,CommunityRating,CriticRating",
     Recursive: "true",
+    SortBy: "CommunityRating,DateCreated",
     SortOrder: "Descending",
-    IncludeItemTypes: "Movie,Series",
-    StudioIds: ids.join(",")
+    IncludeItemTypes: String(options.itemTypes || "Movie,Series")
   });
+  // Tags replace the studio filter rather than joining it. A brand only carries tags
+  // when its series are unreachable by studio, so ANDing the two would return nothing.
+  if (tags.length) params.set("Tags", tags.join("|"));
+  else params.set("StudioIds", ids.join(","));
   if (Number.isFinite(options.minRating)) {
     params.set("MinCommunityRating", String(options.minRating));
   }
@@ -1084,6 +1173,10 @@ export async function renderStudioHubs() {
     const studios = cached || await fetchStudios(__fetchAbort.signal, userId).catch(() => []);
     if (!cached && studios.length) saveCache(LS_KEY, studios);
 
+    // One shared fetch for every brand: the tag axis is how film brands reach their series,
+    // which carry the broadcasting network as their studio rather than the production company.
+    const seriesTagVocabulary = await fetchSeriesTagVocabulary(userId, __fetchAbort.signal);
+
     // A hub is a brand, and a brand spans every Jellyfin Studio entity matching
     // its rules — resolving to a single "best" entity is what hid most of the
     // library behind each card.
@@ -1145,7 +1238,12 @@ export async function renderStudioHubs() {
       // getItem lookup and renders nothing), so the card opens the explorer.
       // The href keeps the primary entity so middle-click still does something.
       card.href = buildStudioHref(brand.primaryId, serverId);
-      bindStudioExplorerCard(card, { name, studioIds: brand.studioIds, userId });
+      bindStudioExplorerCard(card, {
+        name,
+        studioIds: brand.studioIds,
+        seriesTags: resolveStudioBrandSeriesTags(name, seriesTagVocabulary),
+        userId
+      });
       card.classList.remove("hub-card-textonly");
 
       const isDefaultHub = isDefaultStudioHub(name);
