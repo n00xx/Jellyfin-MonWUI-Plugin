@@ -1,4 +1,4 @@
-import { resolveStudioBrandMap, resolveStudioBrandEntities, normalizeStudioName } from "../Resources/slider/modules/studioBrands.js";
+import { resolveStudioBrandMap, resolveStudioBrandEntities, normalizeStudioName, resolveStudioBrandSeriesTags } from "../Resources/slider/modules/studioBrands.js";
 
 // The 28 studio entities in the live library whose names contain any brand
 // keyword. Names containing none cannot match an include rule, so this subset
@@ -70,6 +70,49 @@ if (a24.studioIds.length !== 1) fail("expected a single entity for a non-fanned-
 const nope = resolveStudioBrandEntities("Totally Absent Studio", STUDIOS);
 if (nope.studioIds.length !== 0) fail("absent brand should resolve to nothing");
 else console.log("  ok   absent brand resolves to no entities");
+
+// A film brand's series carry the broadcasting network as their studio, not the production
+// company, so the studio axis returns zero series for Marvel, DC and Lucasfilm. The tag axis
+// is what reaches them — and it is noisier than studio names, so these guard the false
+// positives that a brand-name-derived pattern actually produced against the live vocabulary.
+console.log("\nseries tags: franchise keywords resolve");
+// Every tag in the reference library (1824 of them) that contains any brand keyword.
+const TAGS = ["marvel cinematic universe (mcu)", "dc universe (dcu)", "dc extended universe (dceu)",
+  "star wars", "washington dc, usa", "based on podcast"];
+for (const [brand, want] of [
+  ["Marvel Studios", ["marvel cinematic universe (mcu)"]],
+  ["DC", ["dc universe (dcu)", "dc extended universe (dceu)"]],
+  ["Lucasfilm Ltd.", ["star wars"]],
+]) {
+  const got = resolveStudioBrandSeriesTags(brand, TAGS);
+  if (JSON.stringify(got.slice().sort()) !== JSON.stringify(want.slice().sort())) {
+    fail(`${brand}: tags ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+  } else console.log(`  ok   ${brand.padEnd(22)} -> ${got.join(", ")}`);
+}
+
+console.log("\nseries tags: no false positives");
+// "washington dc, usa" is a filming location and "based on podcast" contains "dc" inside
+// "po(dc)ast". A bare /dc/ over the tag vocabulary claims both.
+for (const junk of ["washington dc, usa", "based on podcast"]) {
+  const claimedBy = ["Marvel Studios", "DC", "Lucasfilm Ltd."].filter(b =>
+    resolveStudioBrandSeriesTags(b, [junk]).length);
+  if (claimedBy.length) fail(`"${junk}" was claimed by ${claimedBy.join(", ")}`);
+  else console.log(`  ok   ${JSON.stringify(junk).padEnd(24)} claimed by nobody`);
+}
+
+console.log("\nseries tags: brands without a franchise keyword stay on the studio axis");
+for (const brand of ["Pixar", "Walt Disney Pictures", "Netflix", "Disney+"]) {
+  const got = resolveStudioBrandSeriesTags(brand, TAGS);
+  if (got.length) fail(`${brand}: expected no series tags, got ${JSON.stringify(got)}`);
+  else console.log(`  ok   ${brand.padEnd(22)} -> studio axis`);
+}
+
+console.log("\nseries tags: matching is case- and punctuation-insensitive");
+// Another library may spell the same TMDB keyword differently; the query filters on the
+// literal the server reported, so the returned value must be that literal, not the pattern.
+const shouty = resolveStudioBrandSeriesTags("Marvel Studios", ["Marvel Cinematic Universe (MCU)"]);
+if (shouty[0] !== "Marvel Cinematic Universe (MCU)") fail(`expected the library's own spelling, got ${JSON.stringify(shouty)}`);
+else console.log("  ok   returns the library's own spelling verbatim");
 
 console.log(`\nunassigned: ${unmatched.length} (${unmatched.map(u => u.name).join(", ")})`);
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASS");

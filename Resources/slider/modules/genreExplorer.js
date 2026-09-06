@@ -1191,7 +1191,7 @@ let __s_busy = false;
 let __s_startIndex = 0;
 let __s_io = null;
 let __s_isClosing = false;
-let __s_studio = { name: "", studioIds: [] };
+let __s_studio = { name: "", studioIds: [], seriesTags: [] };
 
 // The grid is grouped by type: every film first, then every series. That needs two paginators
 // rather than one, because a single Movie,Series query interleaves the two by rating and no
@@ -1302,9 +1302,23 @@ async function s_loadMore() {
   params.set("SortOrder", "Descending");
   params.set("Limit", String(LIMIT));
   params.set("StartIndex", String(__s_startIndex));
-  // Comma-separated only. A pipe-separated value does not OR the studios, it
-  // silently returns unrelated items.
-  params.set("StudioIds", __s_studio.studioIds.join(","));
+
+  // A film brand's series are not reachable through its studios: TMDB writes the
+  // broadcasting network onto a series, not the production company, so "Marvel Studios"
+  // resolves to every Marvel film and zero Marvel shows. When the brand has a franchise
+  // keyword in this library, the series phase filters on that instead — it is the precise
+  // signal, where unioning the networks would drag a whole platform's catalogue in.
+  //
+  // The two filters are alternatives, never combined: a brand only has tags because its
+  // series are absent from the studio axis, so ANDing them would return nothing.
+  const seriesTags = phaseType === "Series" ? (__s_studio.seriesTags || []) : [];
+  if (seriesTags.length) {
+    params.set("Tags", seriesTags.join("|"));
+  } else {
+    // Comma-separated only. A pipe-separated value does not OR the studios, it
+    // silently returns unrelated items.
+    params.set("StudioIds", __s_studio.studioIds.join(","));
+  }
 
   let advanced = false;
   try {
@@ -1355,7 +1369,8 @@ export function openStudioExplorer(studio) {
   if (__s_overlay) { try { closeStudioExplorer(true); } catch {} }
 
   const studioIds = [...new Set((studio?.studioIds || []).map(id => String(id || "").trim()).filter(Boolean))];
-  __s_studio = { name: String(studio?.name || ""), studioIds };
+  const seriesTags = [...new Set((studio?.seriesTags || []).map(t => String(t || "").trim()).filter(Boolean))];
+  __s_studio = { name: String(studio?.name || ""), studioIds, seriesTags };
   __s_startIndex = 0;
   __s_phase = 0;
 
@@ -1436,7 +1451,7 @@ export function closeStudioExplorer(skipAnimation = false) {
     __s_startIndex = 0;
     __s_phase = 0;
     __s_isClosing = false;
-    __s_studio = { name: "", studioIds: [] };
+    __s_studio = { name: "", studioIds: [], seriesTags: [] };
   };
 
   if (skipAnimation) { cleanup(); return; }
