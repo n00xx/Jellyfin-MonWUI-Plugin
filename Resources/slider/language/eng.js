@@ -262,6 +262,9 @@ export const languageLabels = {
   buscarNotConfigured: "Seerr/Arr search is not configured on this server.",
   buscarSectionAvailable: "In your library",
   buscarSectionDiscover: "Discover",
+  // Shared by the Buscar result groups and the studio explorer's type headings.
+  sectionMovies: "Movies",
+  sectionSeries: "Series",
   buscarAvailableBadge: "Available",
   buscarRequestBadge: "Request",
   buscarRequestedBadge: "Requested",
