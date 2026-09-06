@@ -136,31 +136,40 @@ function ensureBuscarStyles() {
       color: #fff; background: linear-gradient(135deg,#b98bff,#7c3aed); border-color: transparent;
     }
     /* Type headings sit one level under the availability headings, so they read as a
-       subdivision of the group above rather than as a peer of it: smaller, lighter, indented,
-       and with no rule above them. */
+       subdivision of the group above rather than as a peer of it: smaller, uppercase, indented,
+       and with no rule above them.
+
+       What they must not do is collide with it. At 4px under "En biblioteca", "PELÍCULAS" read
+       as a second line of that title rather than as the label of its own group, and .62 alpha
+       left it too faint to argue otherwise. Separation and a leading accent rule carry the
+       distinction instead of weight — matching the parent's weight would flatten the two levels
+       back into the one they were before they were split. */
     .buscar-overlay .buscar-subsection-head {
       grid-column: 1 / -1;
-      display: flex; align-items: baseline; gap: 8px;
-      margin: 10px 2px 0 10px;
+      display: flex; align-items: center; gap: 8px;
+      margin: 24px 2px 2px;
+      padding: 1px 0 1px 10px;
+      border-left: 3px solid var(--buscar-type-accent, rgba(166,206,220,.5));
     }
-    .buscar-overlay .buscar-subsection-head--first { margin-top: 4px; }
+    .buscar-overlay .buscar-subsection-head--first { margin-top: 14px; }
     .buscar-overlay .buscar-subsection-title {
       margin: 0;
-      font-size: clamp(.82rem, 1vw, .94rem);
-      font-weight: 700; letter-spacing: .01em; line-height: 1.2;
+      font-size: clamp(.86rem, 1vw, .97rem);
+      font-weight: 700; letter-spacing: .09em; line-height: 1.25;
       text-transform: uppercase;
-      color: rgba(227,243,248,.62);
+      color: rgba(227,243,248,.88);
     }
     .buscar-overlay .buscar-subsection-count {
       font-size: 10px; font-weight: 700; line-height: 1;
       padding: 3px 7px; border-radius: 999px;
-      color: rgba(227,243,248,.6);
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(166,206,220,.14);
+      color: rgba(227,243,248,.82);
+      background: rgba(255,255,255,.1);
+      border: 1px solid rgba(166,206,220,.22);
     }
     @media (max-width: 640px) {
       .buscar-overlay .buscar-section-head--discover { margin-top: 16px; padding-top: 14px; }
-      .buscar-overlay .buscar-subsection-head { margin-left: 4px; }
+      .buscar-overlay .buscar-subsection-head { margin-top: 18px; padding-left: 8px; }
+      .buscar-overlay .buscar-subsection-head--first { margin-top: 10px; }
     }
     #monwuiBuscarConfirmModal {
       align-items: center; backdrop-filter: blur(14px);

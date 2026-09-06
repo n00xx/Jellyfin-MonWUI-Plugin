@@ -320,31 +320,38 @@ export function injectGEPerfStyles() {
     /* Type headings for the studio grid. .ge-grid is a display:grid with auto-fill tracks, so
        spanning every column is what makes the cards resume on a fresh row beneath the heading.
        Injected here rather than added to the stylesheet because that sheet ships minified. */
+    /* Same leading accent rule and uppercase label as Buscar's type headings. The two grids
+       are different surfaces but the same idea — "this group is films, that one is series" —
+       so they get one signature; only the scale differs, this being the grid's own heading
+       level rather than a subdivision under another title. The hairline above is gone: 22px
+       and an accent bar separate the groups without adding a second rule per type. */
     .ge-section-head {
       grid-column: 1 / -1;
-      display: flex; align-items: baseline; gap: 10px;
-      margin: 18px 2px 2px;
-      padding-top: 14px;
-      border-top: 1px solid rgba(166,206,220,.16);
+      display: flex; align-items: center; gap: 10px;
+      margin: 22px 2px 2px;
+      padding: 1px 0 1px 10px;
+      border-left: 3px solid rgba(166,206,220,.5);
     }
     .ge-section-head--first {
-      margin-top: 2px; padding-top: 0; border-top: 0;
+      margin-top: 2px;
     }
     .ge-section-title {
       margin: 0;
-      font-size: clamp(1rem, 1.5vw, 1.2rem);
-      font-weight: 800; letter-spacing: -.01em; line-height: 1.2;
-      color: #eef8fb;
+      font-size: clamp(.92rem, 1.15vw, 1.04rem);
+      font-weight: 700; letter-spacing: .09em; line-height: 1.25;
+      text-transform: uppercase;
+      color: rgba(238,248,251,.92);
     }
     .ge-section-count {
       font-size: 11px; font-weight: 800; line-height: 1;
       padding: 4px 8px; border-radius: 999px;
-      color: rgba(227,243,248,.72);
-      background: rgba(255,255,255,.08);
-      border: 1px solid rgba(166,206,220,.18);
+      color: rgba(227,243,248,.82);
+      background: rgba(255,255,255,.1);
+      border: 1px solid rgba(166,206,220,.22);
     }
     @media (max-width: 640px) {
-      .ge-section-head { margin-top: 12px; padding-top: 10px; }
+      .ge-section-head { margin-top: 18px; padding-left: 8px; }
+      .ge-section-head--first { margin-top: 2px; }
     }
   `;
   document.head.appendChild(st);
