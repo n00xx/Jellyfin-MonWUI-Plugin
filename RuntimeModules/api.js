@@ -2386,24 +2386,119 @@ function hasTrackSelection(trackSelection) {
   return !!trackSelection && Object.keys(trackSelection).length > 0;
 }
 
-function findWebpackPlaybackManager(req = getWebpackRequireForPlayNow()) {
-  if (!req) return null;
+// Cache of module ids resolved by signature, keyed by the label passed to
+// findWebpackModuleBySignature. The scan walks every factory in the bundle, so it is worth
+// doing exactly once per page.
+const webpackModuleIdCache = new Map();
 
-  try {
-    const direct = req(39738);
-    if (direct?.f?.play) return direct.f;
-  } catch {}
+/**
+ * Picks a jellyfin-web module out of webpack's registry without knowing its id.
+ *
+ * Hardcoded module ids do not survive a jellyfin-web rebuild: 39738 (playbackManager) and
+ * 22832 (itemShortcuts) were valid on 10.11 and are absent on 12.1. The old fallback scanned
+ * `req.c`, webpack's module cache, but webpack 5 only emits that property when a runtime
+ * module asks for it -- 12.1's require exposes O, b, d, dn, e, f, g, l, m, miniCssF, n, nmd,
+ * o, p, r, t and u, and no c. So both halves failed and every local playback path died with
+ * "playback manager yok".
+ *
+ * `req.m`, the factory map, is exposed. Factories can be read as source without running them,
+ * so the module is found by what its code contains and only then required -- and the require
+ * is a cache hit, because these modules are already loaded.
+ *
+ * `validate` is what makes this safe: a source match is a guess, and the export keys (.f, .Ay)
+ * are minified names that can change too. Nothing is returned until the shape is confirmed.
+ */
+function findWebpackModuleBySignature(req, { label, markers, validate, directIds = [] }) {
+  if (!req || typeof req !== "function") return null;
+
+  const pick = (mod) => {
+    if (!mod) return null;
+    // The export may sit under any key, so the name is never assumed.
+    for (const value of [mod, ...Object.values(mod)]) {
+      try {
+        if (validate(value)) return value;
+      } catch {}
+    }
+    return null;
+  };
+
+  const cachedId = webpackModuleIdCache.get(label);
+  if (cachedId !== undefined) {
+    try {
+      const hit = pick(req(cachedId));
+      if (hit) return hit;
+    } catch {}
+    webpackModuleIdCache.delete(label);
+  }
+
+  // Fast paths first, so a 10.11 server costs nothing.
+  for (const id of directIds) {
+    try {
+      const hit = pick(req(id));
+      if (hit) {
+        webpackModuleIdCache.set(label, id);
+        return hit;
+      }
+    } catch {}
+  }
 
   if (req.c) {
-    for (const mod of Object.values(req.c)) {
-      const candidate = mod?.exports?.f;
-      if (candidate?.play && candidate?.canPlay && candidate?.getCurrentPlayer) {
-        return candidate;
+    try {
+      for (const mod of Object.values(req.c)) {
+        const hit = pick(mod?.exports);
+        if (hit) return hit;
       }
+    } catch {}
+  }
+
+  const factories = req.m;
+  if (!factories) return null;
+
+  for (const id of Object.keys(factories)) {
+    let source = "";
+    try {
+      source = String(factories[id]);
+    } catch {
+      continue;
     }
+    if (!markers.every((marker) => source.includes(marker))) continue;
+
+    try {
+      const hit = pick(req(id));
+      if (hit) {
+        webpackModuleIdCache.set(label, id);
+        return hit;
+      }
+    } catch {}
   }
 
   return null;
+}
+
+function findWebpackPlaybackManager(req = getWebpackRequireForPlayNow()) {
+  return findWebpackModuleBySignature(req, {
+    label: "playbackManager",
+    markers: ["getCurrentPlayer", "setDefaultPlayerActive"],
+    directIds: [39738],
+    validate: (candidate) =>
+      !!(candidate && candidate.play && candidate.canPlay && candidate.getCurrentPlayer),
+  });
+}
+
+/**
+ * The shortcut path's module. On 12.1 this is expected to come back null: `data-action`,
+ * `itemAction` and `dataset.action` appear in none of that build's bundles, so the module
+ * looks to be gone with the React rewrite. That costs nothing, because playbackManager is
+ * tried first on both routes -- the shortcut only ever ran when no tracks were picked.
+ * The id fast path keeps 10.11 behaving exactly as before.
+ */
+function findWebpackItemShortcuts(req = getWebpackRequireForPlayNow()) {
+  return findWebpackModuleBySignature(req, {
+    label: "itemShortcuts",
+    markers: ["onClick", "data-action"],
+    directIds: [22832],
+    validate: (candidate) => !!(candidate && typeof candidate.onClick === "function"),
+  });
 }
 
 const TRACK_ENFORCE_TIMEOUT_MS = 8000;
@@ -2520,8 +2615,7 @@ async function tryWebpackShortcutPlaybackStart(itemId, { startPositionTicks = 0,
   }
 
   try {
-    const shortcutsMod = req(22832);
-    const shortcuts = shortcutsMod?.Ay;
+    const shortcuts = findWebpackItemShortcuts(req);
     if (!shortcuts?.onClick) {
       attempts.push({ target: "webpack", method: "shortcut-module", ok: false, err: "itemShortcuts yok" });
       return { tried: true, started: false, attempts };
