@@ -1,0 +1,17 @@
+/*
+ * Jellyfin 12.1 lists every library in the header bar, which 10.11 did not: the same
+ * libraries the home rows already surface, repeated above them.
+ *
+ * Keyed on the route rather than the label, so it survives a library rename, a server in
+ * another language and a library added later. `MuiButton-root` is what separates these from
+ * the navigation drawer's copies, which are `MuiListItemButton-root` -- the drawer keeps its
+ * library links, so the slide-out menu still navigates.
+ *
+ * The :not() guard is insurance, not decoration: createMuiTabsSliderButton() in
+ * modules/watchlist.js builds moui's own Watchlist and Search buttons with exactly these MUI
+ * classes. Today only their href tells them apart (#/home?tab=watchlist carries no
+ * topParentId); the guard keeps them visible if that ever changes.
+ */
+a.MuiButton-root[href*="topParentId="]:not(.monwui-watchlist-nav-button) {
+  display: none !important;
+}

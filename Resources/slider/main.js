@@ -2951,6 +2951,8 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
     // Seerr modals (#monwuiSerrModal is 999999, its confirm dialog 1000001) even when they
     // stay open after a successful request.
     syncCSS('/slider/src/notificationsBase.css', 'jms-css-notifications-base', true);
+    // Always on: the header renders on every page, not just where a feature is enabled.
+    syncCSS('/slider/src/headerNav.css', 'jms-css-header-nav', true);
     D.getElementById('jms-css-notifications')?.remove();
     syncCSS(getPauseOverlayCssHref(cfg), 'jms-css-pause', pauseFeatureCssEnabled);
     syncCSS('/slider/src/personalRecommendations.css', 'jms-css-recs', recommendationCssEnabled);
