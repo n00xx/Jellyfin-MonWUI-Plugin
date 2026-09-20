@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <!-- Runs against the built plugin via reflection, so it is free to target whichever
-         runtime is installed locally; it does not have to match the plugin's net9.0. -->
+         runtime is installed locally; it does not have to match the plugin's own TargetFramework. -->
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>disable</Nullable>
     <AssemblyName>LocalTmdbBatch</AssemblyName>

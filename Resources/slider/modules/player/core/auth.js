@@ -156,3 +156,29 @@ export function uninstallConsoleInterceptor() {
 }
 
 installConsoleInterceptor();
+
+/**
+ * Builds the headers a Jellyfin request needs.
+ *
+ * Jellyfin 12 stopped reading X-Emby-Token and ?api_key= -- both answer 401 -- and only
+ * honours `Authorization: MediaBrowser Token="..."`. It ignores the legacy header when a
+ * valid Authorization is present, so we send both and stay compatible with 10.11 servers.
+ */
+export function authHeaders(extra = {}) {
+  const token = String(getAuthToken() || "").trim();
+  const headers = { ...extra };
+  if (!token) return headers;
+
+  const client = (typeof window !== "undefined" ? window.ApiClient : null) || null;
+  const safe = (v, fallback) =>
+    String(v || fallback).replace(/"/g, "");
+  const device = safe(client?.deviceName?.(), "Web Client");
+  const deviceId = safe(client?.deviceId?.(), "jmsfusion-web");
+  const version = safe(client?.appVersion?.(), "1.0.0");
+
+  headers.Authorization =
+    `MediaBrowser Client="Jellyfin Web Client", Device="${device}", ` +
+    `DeviceId="${deviceId}", Version="${version}", Token="${token}"`;
+  headers["X-Emby-Token"] = token;
+  return headers;
+}

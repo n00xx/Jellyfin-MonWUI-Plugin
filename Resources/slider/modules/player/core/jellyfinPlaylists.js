@@ -1,4 +1,4 @@
-import { getAuthToken } from "./auth.js";
+import { getAuthToken, authHeaders } from "./auth.js";
 import { showNotification } from "../ui/notification.js";
 import { musicPlayerState, resetShuffle } from "./state.js";
 import { getConfig } from "../../config.js";
@@ -35,7 +35,7 @@ export async function fetchJellyfinPlaylists() {
         Fields: "PrimaryImageAspectRatio",
         StartIndex: 0,
       }),
-      { headers: { "X-Emby-Token": authToken } }
+      { headers: authHeaders() }
     );
 
     if (!response.ok) {
@@ -86,7 +86,7 @@ export async function playJellyfinPlaylist(playlistId) {
         UserId: userId,
         Fields: "PrimaryImageAspectRatio,MediaSources,Chapters,ArtistItems,AlbumArtist,Album,Genres,RunTimeTicks,ImageTags,UserData",
       }),
-      { headers: { "X-Emby-Token": authToken } }
+      { headers: authHeaders() }
     );
 
     if (!playlistResponse.ok) throw new Error(`HTTP error! status: ${playlistResponse.status}`);
@@ -319,7 +319,7 @@ async function deleteJellyfinPlaylist(playlistId) {
   try {
     const response = await fetch(
       withServer(`/Items/${playlistId}`),
-      { method: "DELETE", headers: { "X-Emby-Token": authToken } }
+      { method: "DELETE", headers: authHeaders() }
     );
 
     if (!response.ok) {

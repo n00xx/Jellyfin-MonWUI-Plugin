@@ -15,7 +15,7 @@ using System.Reflection;
 // Run with:  dotnet build -c Release && dotnet run --project tests/LocalTmdbBatch
 
 var pluginDll = Path.GetFullPath(Path.Combine(
-    AppContext.BaseDirectory, "..", "..", "..", "..", "..", "bin", "Release", "net9.0",
+    AppContext.BaseDirectory, "..", "..", "..", "..", "..", "bin", "Release", "net10.0",
     "Jellyfin.Plugin.JMSFusion.dll"));
 
 if (!File.Exists(pluginDll))
