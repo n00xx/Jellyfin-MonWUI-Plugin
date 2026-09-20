@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using Jellyfin.Plugin.JMSFusion.Core;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -139,7 +140,7 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             var cfg = JMSFusionPlugin.Instance?.Configuration
                       ?? throw new InvalidOperationException("Plugin configuration not available.");
 
-            var token = Request.Headers["X-Emby-Token"].FirstOrDefault();
+            var token = JellyfinAuth.ReadIncomingToken(Request.Headers);
             if (string.IsNullOrWhiteSpace(token))
                 return Unauthorized(new { ok = false, error = "X-Emby-Token gerekli" });
 
@@ -308,9 +309,14 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             {
                 var url = $"{jfBase.TrimEnd('/')}/Users/{userId}/Items" +
                           $"?IncludeItemTypes=Audio&Recursive=true&Fields=Path,RunTimeTicks,AlbumArtist,Artists" +
-                          $"&StartIndex={start}&Limit={limit}&api_key={Uri.EscapeDataString(apiKey)}";
+                          $"&StartIndex={start}&Limit={limit}";
 
-                using var r = await _http.GetAsync(url, ct);
+                // Jellyfin 12 stopped honouring ?api_key=; the credential rides the header now.
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                req.Headers.TryAddWithoutValidation(
+                    JellyfinAuth.HeaderName,
+                    JellyfinAuth.BuildHeaderValue(apiKey));
+                using var r = await _http.SendAsync(req, ct);
                 r.EnsureSuccessStatusCode();
                 var j = await r.Content.ReadFromJsonAsync<JFItemsResponse>(cancellationToken: ct) ?? new JFItemsResponse(new(), 0);
 

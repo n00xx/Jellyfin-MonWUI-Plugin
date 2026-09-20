@@ -1,6 +1,6 @@
 import { musicPlayerState } from "../core/state.js";
 import { getConfig } from "../../config.js";
-import { getAuthToken } from "../core/auth.js";
+import { getAuthToken, authHeaders } from "../core/auth.js";
 import { showNotification } from "../ui/notification.js";
 import { refreshPlaylist } from "../core/playlist.js";
 import { withServer, withParams } from "../../jfUrl.js";
@@ -32,7 +32,7 @@ export async function showGenreFilterModal() {
         Fields: "PrimaryImageAspectRatio,ImageTags",
         EnableTotalRecordCount: "false",
       }),
-      { headers: { "X-Emby-Token": token }, signal: fetchCtrl.signal }
+      { headers: authHeaders(), signal: fetchCtrl.signal }
     );
 
     if (!response.ok) throw new Error("Türler alınamadı");

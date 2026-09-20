@@ -1,6 +1,6 @@
 import { musicPlayerState } from "../core/state.js";
 import { getConfig } from "../../config.js";
-import { getAuthToken, apiUrl } from "../core/auth.js";
+import { getAuthToken, apiUrl, authHeaders } from "../core/auth.js";
 import { musicDB } from "../utils/db.js";
 import { showNotification } from "../ui/notification.js";
 import { parseID3Tags } from "./id3Reader.js";
@@ -261,7 +261,7 @@ async function fetchLyricsFromServer(trackId, signal) {
   for (const { url, type } of endpoints) {
     try {
       const res = await fetch(url, {
-        headers: { "X-Emby-Token": token },
+        headers: authHeaders(),
         signal,
       });
 
@@ -362,7 +362,7 @@ export async function getEmbeddedLyrics(trackId) {
 
     const token = getAuthToken();
     const response = await fetch(apiUrl(`/Audio/${trackId}/stream.mp3?Static=true`), {
-      headers: { "X-Emby-Token": token },
+      headers: authHeaders(),
       signal: fetchAbort.signal
     });
     if (!response.ok) throw new Error("Stream alınamadı");

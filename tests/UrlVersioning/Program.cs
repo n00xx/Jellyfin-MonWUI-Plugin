@@ -17,7 +17,7 @@ using System.Reflection;
 // Run with:  dotnet build -c Release && dotnet run --project tests/UrlVersioning
 
 var pluginDll = Path.GetFullPath(Path.Combine(
-    AppContext.BaseDirectory, "..", "..", "..", "..", "..", "bin", "Release", "net9.0",
+    AppContext.BaseDirectory, "..", "..", "..", "..", "..", "bin", "Release", "net10.0",
     "Jellyfin.Plugin.JMSFusion.dll"));
 
 if (!File.Exists(pluginDll))
@@ -40,7 +40,7 @@ AppDomain.CurrentDomain.AssemblyResolve += (_, e) =>
     {
         foreach (var candidate in Directory.GetFiles(package, wanted, SearchOption.AllDirectories))
         {
-            if (candidate.Contains("/net9.0/") || candidate.Contains("/net8.0/"))
+            if (candidate.Contains("/net10.0/") || candidate.Contains("/net9.0/") || candidate.Contains("/net8.0/"))
             {
                 try { return Assembly.LoadFrom(candidate); } catch { /* try the next match */ }
             }

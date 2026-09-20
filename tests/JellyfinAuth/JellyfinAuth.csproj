@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <!-- Runs against the built plugin via reflection, so it is free to target whichever
-         runtime is installed locally; it does not have to match the plugin's own TargetFramework. -->
+    <!-- Runs against the built plugin via reflection, so it only has to be a runtime the
+         machine has; it does not have to track the plugin's own TargetFramework. -->
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>disable</Nullable>
-    <AssemblyName>UrlVersioning</AssemblyName>
+    <AssemblyName>JellyfinAuth</AssemblyName>
     <RootNamespace>Jellyfin.Plugin.JMSFusion.Tests</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

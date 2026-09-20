@@ -1,6 +1,6 @@
 import { musicPlayerState, resetShuffle } from "./state.js";
 import { getConfig } from "../../config.js";
-import { getAuthToken, apiUrl } from "./auth.js";
+import { getAuthToken, apiUrl, authHeaders } from "./auth.js";
 import { shuffleArray } from "../utils/domUtils.js";
 import { showNotification } from "../ui/notification.js";
 import { updateModernTrackInfo, playTrack } from "../player/playback.js";
@@ -41,7 +41,7 @@ export async function refreshPlaylist() {
     const genres = musicPlayerState.selectedGenres || [];
     let items = [];
 
-    const headers = { "X-Emby-Token": token };
+    const headers = authHeaders();
     const baseQuery = "IncludeItemTypes=Audio&Recursive=true&SortBy=Random&Fields=RunTimeTicks,ImageTags,Album,AlbumArtist,ArtistItems,MediaStreams,MediaSources,UserData";
 
     let totalItems = 0;
@@ -257,10 +257,7 @@ async function addItemsToPlaylist(playlistId, itemIds, userId) {
       apiUrl(`/Playlists/${playlistId}/Items?ids=${idsQueryParam}&userId=${userId}`),
       {
         method: "POST",
-        headers: {
-          "X-Emby-Token": token,
-          "Content-Type": "application/json",
-        },
+        headers: authHeaders({ "Content-Type": "application/json" }),
       }
     );
 
@@ -290,10 +287,7 @@ export async function removeItemsFromPlaylist(playlistId, itemIds) {
 
   const res = await fetch(apiUrl(url), {
     method: "DELETE",
-    headers: {
-      "X-Emby-Token": token,
-      "Content-Type": "application/json",
-    },
+    headers: authHeaders({ "Content-Type": "application/json" }),
   });
 
   if (!res.ok) {
@@ -308,10 +302,7 @@ export async function removeItemsFromPlaylist(playlistId, itemIds) {
 async function getPlaylistItems(playlistId) {
   const token = getAuthToken();
   const response = await fetch(apiUrl(`/Playlists/${playlistId}/Items`), {
-    headers: {
-      "X-Emby-Token": token,
-      "Content-Type": "application/json",
-    },
+    headers: authHeaders({ "Content-Type": "application/json" }),
   });
 
   if (!response.ok) {
@@ -414,10 +405,7 @@ export async function saveCurrentPlaylistToJellyfin(
     } else {
       const createResponse = await fetch(apiUrl("/Playlists"), {
         method: "POST",
-        headers: {
-          "X-Emby-Token": token,
-          "Content-Type": "application/json",
-        },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           Name: playlistName || `Yeni Çalma Listesi ${new Date().toLocaleString()}`,
           Ids: itemIds,

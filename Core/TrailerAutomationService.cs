@@ -1213,7 +1213,10 @@ public sealed class TrailerAutomationService
     private static HttpRequestMessage CreateJellyfinRequest(StepContext ctx, HttpMethod method, string route)
     {
         var req = new HttpRequestMessage(method, BuildJellyfinUri(ctx.Options.JfBase, route));
-        req.Headers.TryAddWithoutValidation("X-Emby-Token", ctx.Options.JfApiKey);
+        // Jellyfin 12 no longer reads X-Emby-Token; only Authorization authenticates.
+        req.Headers.TryAddWithoutValidation(
+            JellyfinAuth.HeaderName,
+            JellyfinAuth.BuildHeaderValue(ctx.Options.JfApiKey));
         return req;
     }
 

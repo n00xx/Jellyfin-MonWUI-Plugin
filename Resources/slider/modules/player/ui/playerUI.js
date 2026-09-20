@@ -13,7 +13,7 @@ import { readID3Tags } from "../lyrics/id3Reader.js";
 import { toggleArtistModal, setupArtistClickHandler } from "./artistModal.js";
 import { showGenreFilterModal } from "./genreFilterModal.js";
 import { showTopTracksModal } from "./topModal.js";
-import { getAuthToken } from "../core/auth.js";
+import { getAuthToken, authHeaders } from "../core/auth.js";
 import { showNotification } from "./notification.js";
 import { openSettings } from "../../settingsLoader.js";
 import { loadCSS, isMobileDevice } from "../../playerStyles.js";
@@ -1070,7 +1070,7 @@ async function showTopTracksInMainView(tab) {
     const { apiPath, params } = getApiUrlForTab(tab, userId);
 
     const response = await fetch(withParams(apiPath, params), {
-      headers: { "X-Emby-Token": token },
+      headers: authHeaders(),
       signal: __topTracksAborter.signal
     });
 

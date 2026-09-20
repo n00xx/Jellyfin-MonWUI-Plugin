@@ -4199,11 +4199,41 @@ function normalizeWithServer(u) {
   return s;
 }
 
-function requiresAuthRequest(url = "") {
+// Jellyfin API roots that need a credential. This stays an explicit list rather than
+// "every same-origin URL": safeFetch also serves the plugin's own assets under /web/ and
+// /slider/, and putting the user's access token on those would hand it to requests with no
+// use for it. Image routes are excluded on purpose -- they are anonymous in Jellyfin 12 and
+// are fetched before login, so demanding a token there would break the profile chooser.
+const JELLYFIN_AUTHED_PATH =
+  /\/(Users|Sessions|Items|Shows|Studios|Genres|MusicGenres|Persons|Artists|Albums|Playlists|UserViews|UserItems|Search|Movies|Trailers|Collections|Channels|Library|LiveTv|Videos|Audio)(\/|$)/i;
+
+// A second, narrower question, kept separate on purpose: which requests must not fire *at
+// all* until a token exists. Streaming and image routes answer yes to "may carry a credential"
+// and no to this one -- /Videos/{id}/stream and /Items/{id}/Images/* are anonymous in Jellyfin
+// 12 (measured), so blocking them on auth-readiness would stall playback on a cold load.
+// This is the original requiresAuthRequest, preserved verbatim.
+const JELLYFIN_TOKEN_REQUIRED_PATH =
+  /\/Users\/|\/Sessions\b|\/Items\/[^/]+\/PlaybackInfo\b|\/Videos\//i;
+
+function requiresTokenBeforeRequest(url = "") {
   try {
     const input = String(url || "");
     const path = /^https?:\/\//i.test(input) ? new URL(input).pathname : input;
-    return /\/Users\/|\/Sessions\b|\/Items\/[^/]+\/PlaybackInfo\b|\/Videos\//i.test(path);
+    return JELLYFIN_TOKEN_REQUIRED_PATH.test(path);
+  } catch {
+    return true;
+  }
+}
+
+function requiresAuthRequest(url = "") {
+  try {
+    const input = String(url || "");
+    const path = /^https?:\/\//i.test(input)
+      ? new URL(input).pathname
+      : input.split("?")[0].split("#")[0];
+    if (/\/Images(\/|$)/i.test(path)) return false;
+    if (/(^|\/)(web|slider)\//i.test(path)) return false;
+    return JELLYFIN_AUTHED_PATH.test(path);
   } catch {
     return true;
   }
@@ -4230,18 +4260,35 @@ function withApiKeyIfNeeded(url, token) {
   }
 }
 
+function isSameOriginRequest(url = "") {
+  try {
+    const input = String(url || "").trim();
+    if (!input) return false;
+    if (!/^https?:\/\//i.test(input)) return true;
+    return new URL(input).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 function buildSafeFetchHeaders(url, incomingHeaders) {
   const headers = new Headers(incomingHeaders || {});
+
+  // Jellyfin 12 dropped X-Emby-Token and ?api_key=, so Authorization is the only credential
+  // it still reads. Gated on the same predicate as the legacy pair -- and on same-origin, so
+  // an absolute third-party URL that happens to contain /Items/ never receives the token.
   if (!requiresAuthRequest(url)) return headers;
+
+  if (isSameOriginRequest(url)) {
+    const authHeader = String((typeof getAuthHeader === "function" ? getAuthHeader() : "") || "").trim();
+    if (!String(headers.get("Authorization") || "").trim() && authHeader) {
+      headers.set("Authorization", authHeader);
+    }
+  }
 
   const session = (typeof getSessionInfo === "function" ? getSessionInfo() : null) || {};
   const token = String(session.accessToken || getAuthToken() || "").trim();
   const userId = String(session.userId || "").trim();
-  const authHeader = String((typeof getAuthHeader === "function" ? getAuthHeader() : "") || "").trim();
-
-  if (!String(headers.get("Authorization") || "").trim() && authHeader) {
-    headers.set("Authorization", authHeader);
-  }
 
   if (!String(headers.get("X-Emby-Token") || "").trim() && token) {
     headers.set("X-Emby-Token", token);
@@ -4255,7 +4302,7 @@ function buildSafeFetchHeaders(url, incomingHeaders) {
 
 async function safeFetch(url, opts = {}) {
   const normalizedUrl = normalizeWithServer(url);
-  if (requiresAuthRequest(normalizedUrl)) {
+  if (requiresTokenBeforeRequest(normalizedUrl)) {
     if (typeof isAuthReadyStrict === "function" && !isAuthReadyStrict()) {
       try { await waitForAuthReadyStrict(5000); } catch {}
     }

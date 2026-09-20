@@ -1,4 +1,4 @@
-import { getAuthToken } from "../core/auth.js";
+import { getAuthToken, authHeaders } from "../core/auth.js";
 import { getConfig } from "../../config.js";
 import { musicPlayerState } from "../core/state.js";
 import { playTrack } from "../player/playback.js";
@@ -498,7 +498,7 @@ async function loadTracks() {
     const { apiPath, params } = getApiForTab(activeTab, userId, trackLimit);
 
     const response = await fetch(withParams(apiPath, params), {
-      headers: { "X-Emby-Token": token }
+      headers: authHeaders()
     });
 
     if (!response.ok) throw new Error('Şarkılar yüklenemedi');

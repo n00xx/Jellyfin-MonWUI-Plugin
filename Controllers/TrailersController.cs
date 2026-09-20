@@ -179,7 +179,7 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
                         hint: "Docker'da /config/plugins ve /config/plugins/configurations yazılabilir olmalı; plugin gerçekten yüklendi mi? Konteyner loglarına bakın.");
                 }
 
-                var token = Request.Headers["X-Emby-Token"].FirstOrDefault();
+                var token = JellyfinAuth.ReadIncomingToken(Request.Headers);
                 if (string.IsNullOrWhiteSpace(token))
                 {
                     return ApiError(401, ApiTokenHeaderRequiredCode, "X-Emby-Token header gerekli.");
