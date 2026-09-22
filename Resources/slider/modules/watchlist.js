@@ -54,6 +54,9 @@ const WATCHLIST_ICON_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(
 // (WATCHLIST_NAV_BUTTON_CLASS) so it inherits the same icon/label styling and the same
 // MutationObserver self-mutation guard in isTabsSliderMutationRelevant() for free — only a
 // second, button-specific class is needed to tell the two apart when querying for either.
+// The MUI link must also carry WATCHLIST_MUI_NAV_LINK_CLASS: every MUI header rule (here and in
+// player/main.js) is keyed on that pair, and without it the link rendered as a bare blue,
+// underlined anchor. Nothing queries by that class, so sharing it cannot confuse the two.
 const SEARCH_NAV_BUTTON_CLASS = "monwui-search-nav-button";
 const SEARCH_MUI_NAV_LINK_CLASS = "monwui-search-nav-link";
 const SEARCH_NAV_KIND_ATTR = "data-monwui-search-nav-kind";
@@ -7638,6 +7641,7 @@ function createSearchMuiTabsSliderButton() {
   const link = document.createElement("a");
   link.className = [
     WATCHLIST_NAV_BUTTON_CLASS,
+    WATCHLIST_MUI_NAV_LINK_CLASS,
     SEARCH_NAV_BUTTON_CLASS,
     SEARCH_MUI_NAV_LINK_CLASS,
     "MuiButtonBase-root",

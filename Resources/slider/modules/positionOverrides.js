@@ -176,14 +176,6 @@ function isElementVisible(element) {
   return style?.display !== 'none' && style?.visibility !== 'hidden';
 }
 
-function findVisibleSkinHeader() {
-  const candidates = document.querySelectorAll('.skinHeader:not(.osdHeader)');
-  for (const header of candidates) {
-    if (isElementVisible(header)) return header;
-  }
-  return null;
-}
-
 function isLiveTvRouteActive() {
   try {
     const raw = [
@@ -226,6 +218,12 @@ function findActiveSlidesContainer() {
   );
 }
 
+function hasMountedSlider() {
+  return !!document.querySelector(
+    '#indexPage:not(.hide) #monwui-slides-container, #homePage:not(.hide) #monwui-slides-container'
+  );
+}
+
 function readSliderVisualTopValue() {
   const container = findActiveSlidesContainer();
   if (!container) return '0px';
@@ -255,6 +253,14 @@ function computeEffectiveTopState() {
     };
   }
   if (cfg?.enableSlider === false || cfg?.enableSlider === 'false') {
+    return null;
+  }
+  // The default top pulls the sections up to tuck them under the slider (-10vh on desktop).
+  // With no slider on the page -- reached through the header's home link, or before it mounts
+  // -- the same pull put the first row's title under the fixed header, and since it is a
+  // relative offset rather than scroll, nothing could scroll it back. homeTopObserver sees the
+  // slider's insertion, so the offset comes back the moment there is something to tuck under.
+  if (!hasMountedSlider()) {
     return null;
   }
 

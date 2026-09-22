@@ -5713,19 +5713,27 @@ function setupNavigationObserver() {
 
   let previousUrl = window.location.href;
   let isOnHomePage = isHomeVisible() || isHomeRouteActive();
+  let lastHomePageEl = getVisibleHomePageEl();
   let scheduledTimer = 0;
   let disposed = false;
 
   const checkPageChange = async () => {
     const currentUrl = window.location.href;
     const nowOnHomePage = isHomeVisible() || isHomeRouteActive();
+    // The header's home link pushes #/ and Jellyfin immediately replaces it with #/home, both
+    // before this coalesced check runs -- so the URL reads unchanged, yet Jellyfin has rendered
+    // a brand-new #indexPage without the slider. Only the element's identity gives that away.
+    const homePageEl = nowOnHomePage ? getVisibleHomePageEl() : null;
+    const homePageReplaced = !!homePageEl && !!lastHomePageEl && homePageEl !== lastHomePageEl;
+    if (homePageEl) lastHomePageEl = homePageEl;
 
-    if (currentUrl !== previousUrl || nowOnHomePage !== isOnHomePage) {
+    if (currentUrl !== previousUrl || nowOnHomePage !== isOnHomePage || homePageReplaced) {
       homeSectionLog("navigation:page-change", {
         fromUrl: previousUrl,
         toUrl: currentUrl,
         wasOnHomePage: isOnHomePage,
         nowOnHomePage,
+        homePageReplaced,
       });
       previousUrl = currentUrl;
       isOnHomePage = nowOnHomePage;

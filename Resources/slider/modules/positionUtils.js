@@ -20,6 +20,7 @@ const SLIDER_HEADER_OBSERVER_OPTIONS = {
 
 const SLIDER_HEADER_RELEVANT_SELECTOR = [
   '.skinHeader',
+  '.MuiAppBar-root',
   '.mainDrawer',
   '.mainDrawerButton',
   '#monwui-slides-container',
@@ -99,8 +100,13 @@ function isElementVisible(element) {
   return style?.display !== 'none' && style?.visibility !== 'hidden';
 }
 
+// Jellyfin 12.1 still renders a .skinHeader, but as an empty 0x0 div; the bar the user sees is
+// the fixed MUI AppBar. Matching only .skinHeader measured nothing, left the offset at 0, and
+// the slider started under the 48px header -- its top-left badge sat beneath the logo.
+const APP_HEADER_SELECTOR = '.skinHeader:not(.osdHeader), .MuiAppBar-root:not(.osdHeader)';
+
 function findVisibleSkinHeader() {
-  const candidates = document.querySelectorAll('.skinHeader:not(.osdHeader)');
+  const candidates = document.querySelectorAll(APP_HEADER_SELECTOR);
   for (const header of candidates) {
     if (isElementVisible(header)) return header;
   }
