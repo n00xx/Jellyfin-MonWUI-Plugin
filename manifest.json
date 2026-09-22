@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.30",
+        "changelog": "v3.7.1.30 (custom fork)\n\nLa pantalla de carga ahora lleva el nombre del servidor en lugar de \"Jellyfin\".\n\n- En escritorio, el logo del splash mostraba el ícono con la palabra \"Jellyfin\". moui tomaba prestada la imagen de Jellyfin (banner-light.png), y como su nombre de archivo cambia en cada build de jellyfin-web, no se podía reemplazar solo con CSS. Ahora el plugin trae su propio ícono y al lado pone el nombre del servidor (\"Neexy\"), el mismo que se ve en el header. Si todavía no hay servidor guardado, muestra \"Neexy\".\n\n- El texto bajo el saludo ahora dice \"Iniciando\" en todos los idiomas, en lugar de \"MonWui is starting\" / \"MonWui se está preparando\".",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.30/JMSFusion-3.7.1.30-server.zip",
+        "checksum": "7596c4f1f77b183e9f97fb7d3f520785",
+        "timestamp": "2026-09-22T20:45:48.0000000Z"
+      },
+      {
         "version": "3.7.1.29",
         "changelog": "v3.7.1.29 (custom fork)\n\nArreglos para el header de Jellyfin 12.1, que tapaba contenido de moui.\n\n- La barra de búsqueda dejaba de funcionar: no se le podía hacer click y el cursor nunca aparecía. El header de 12.1 es una barra fija por encima de todo (z-index 1100), y los overlays de moui (Buscar y los \"See All\" de géneros, directores, estudios y secciones) están en 999. La fila superior del overlay —el campo de búsqueda y el botón cerrar— quedaba debajo del header, así que los clicks le llegaban al header. Solo parecía funcionar al abrir, porque el campo se enfoca solo; al perder el foco ya no se podía recuperar. Ahora el header baja por debajo del overlay mientras uno está abierto.\n\n- El logo de Jellyfin se encimaba con el slider. moui calcula cuánto bajar el slider midiendo el header clásico (.skinHeader), que en 12.1 sigue existiendo pero vacío (0×0). Medía 0, y el slider empezaba 34px por debajo del header, con su etiqueta superior izquierda bajo el logo. Ahora también mide la barra nueva.\n\n- Al hacer click en \"Neexy\" el scroll no subía más allá de \"Películas\". El link va a #/ y Jellyfin lo cambia enseguida a #/home con una página nueva; como la URL final era la misma, moui no volvía a montar el slider. Además, las secciones se subían -10vh para quedar debajo de un slider que ya no estaba, y la primera fila quedaba bajo el header sin forma de alcanzarla con scroll. Ahora moui detecta la página nueva y remonta el slider, y las secciones solo se suben cuando hay slider.\n\n- El botón \"Search\" del header salía como link azul subrayado; ahora tiene el mismo estilo que Watchlist.",
         "targetAbi": "12.1.0.0",
