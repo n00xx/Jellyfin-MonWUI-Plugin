@@ -15,3 +15,18 @@
 a.MuiButton-root[href*="topParentId="]:not(.monwui-watchlist-nav-button) {
   display: none !important;
 }
+
+/*
+ * Every full-screen explorer (genre, director, person, studio, section, Buscar) is a
+ * .genre-explorer-overlay at z-index 999, but 12.1's fixed MUI AppBar sits at 1100 and is
+ * 48px tall -- it painted over the overlay's own header row, so the Buscar input and every
+ * explorer's close button took no clicks. The input still got focus programmatically on open,
+ * which is why search worked until the first blur and then "stopped".
+ *
+ * The header is lowered instead of the overlay raised: cards inside an explorer open things at
+ * z-index 1000-1010 (hover trailer preview, player modals) that must stay above it.
+ */
+body:has(.genre-explorer-overlay) .MuiAppBar-root,
+body:has(.genre-explorer-overlay) .skinHeader {
+  z-index: 998 !important;
+}

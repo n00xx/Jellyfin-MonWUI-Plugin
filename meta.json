@@ -3,13 +3,13 @@
   "description": "JMSFusion injects your custom JS modules into the Jellyfin web UI (response rewrite) and serves them from an external directory or embedded /Resources/slider.",
   "name": "JMSFusion",
   "owner": "G-Grbz",
-  "version": "3.7.1.28",
+  "version": "3.7.1.29",
   "status": "Active",
   "autoUpdate": true,
   "targetAbi": "12.1.0.0",
   "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin",
-  "imagePathLinux": "/var/lib/jellyfin/plugins/JMSFusion_3.7.1.28/icon.png",
-  "imagePathWindows": "%ProgramData%/Jellyfin/Server/plugins/JMSFusion_3.7.1.28/icon.png",
-  "timestamp": "2026-09-20T22:32:44.0000000Z",
+  "imagePathLinux": "/var/lib/jellyfin/plugins/JMSFusion_3.7.1.29/icon.png",
+  "imagePathWindows": "%ProgramData%/Jellyfin/Server/plugins/JMSFusion_3.7.1.29/icon.png",
+  "timestamp": "2026-09-22T20:29:32.0000000Z",
   "guid": "c0b4a5e0-2f6a-4e70-9c5f-1e7c2d0b7f12"
 }
