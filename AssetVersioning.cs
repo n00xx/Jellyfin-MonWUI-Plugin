@@ -191,6 +191,9 @@ namespace Jellyfin.Plugin.JMSFusion
   var LAYER_ID = "jms-boot-splash-layer";
   var SHELL_ID = "jms-boot-splash-shell";
   var LOGO_ID = "jms-boot-splash-logo";
+  // Relative to /web/, like the injected module scripts, so a server BaseUrl still resolves.
+  var SPLASH_ICON_URL = "../{{VersionedSegment}}/src/images/splash-icon.png";
+  var SPLASH_BRAND_FALLBACK = "Neexy";
   var TITLE_ID = "jms-boot-splash-title";
   var CAPTION_ID = "jms-boot-splash-caption-line";
   var PROGRESS_PANEL_ID = "jms-boot-splash-progress";
@@ -346,8 +349,8 @@ namespace Jellyfin.Plugin.JMSFusion
   }
 
   var captions = {
-    spa: "MonWui se está iniciando",
-    eng: "MonWui is starting"
+    spa: "Iniciando",
+    eng: "Iniciando"
   };
 
   var splashLocale = {
@@ -517,7 +520,7 @@ namespace Jellyfin.Plugin.JMSFusion
 
   var resolvedLang = resolveLangKey(lang);
   var localeCopy = splashLocale[resolvedLang] || splashLocale.spa;
-  var captionTemplate = captions[resolvedLang] || captions.spa || "MonWui se está iniciando";
+  var captionTemplate = captions[resolvedLang] || captions.spa || "Iniciando";
   var caption = captionTemplate.indexOf(defaultTitle) !== -1
     ? captionTemplate.replace(defaultTitle, customTitle)
     : captionTemplate;
@@ -534,6 +537,23 @@ namespace Jellyfin.Plugin.JMSFusion
     return document.body || root;
   }
 
+  // The header shows the server's name next to the icon; the splash matches it. Only Name is
+  // read from the stored credentials, and the most recently used server wins.
+  function resolveSplashBrandName() {
+    try {
+      var raw = window.localStorage ? localStorage.getItem("jellyfin_credentials") : null;
+      var servers = raw ? (JSON.parse(raw).Servers || []) : [];
+      var latest = null;
+      for (var i = 0; i < servers.length; i += 1) {
+        var server = servers[i];
+        if (!server || typeof server.Name !== "string" || !server.Name.trim()) continue;
+        if (!latest || (server.DateLastAccessed || 0) > (latest.DateLastAccessed || 0)) latest = server;
+      }
+      if (latest) return latest.Name.trim();
+    } catch {}
+    return SPLASH_BRAND_FALLBACK;
+  }
+
   function ensureSplashLayer(title, captionText, logoLabel) {
     if (!root || !root.hasAttribute(ACTIVE_ATTR)) {
       return document.getElementById(LAYER_ID);
@@ -548,10 +568,26 @@ namespace Jellyfin.Plugin.JMSFusion
       var shell = document.createElement("div");
       shell.id = SHELL_ID;
 
+      // Not Jellyfin's .splashLogo: on desktop that class paints banner-light.png, the
+      // "Jellyfin" wordmark, and its filename is build-hashed so it cannot be swapped in CSS.
+      // The icon ships with the plugin instead, and the server's own name sits beside it.
       var logo = document.createElement("div");
       logo.id = LOGO_ID;
-      logo.className = "splashLogo";
       logo.setAttribute("role", "img");
+
+      var brandIcon = document.createElement("img");
+      brandIcon.className = "jms-boot-splash-brand-icon";
+      brandIcon.src = SPLASH_ICON_URL;
+      brandIcon.alt = "";
+      brandIcon.setAttribute("aria-hidden", "true");
+
+      var brandName = document.createElement("span");
+      brandName.className = "jms-boot-splash-brand-name";
+      brandName.setAttribute("aria-hidden", "true");
+      brandName.textContent = resolveSplashBrandName();
+
+      logo.appendChild(brandIcon);
+      logo.appendChild(brandName);
 
       var copyWrap = document.createElement("div");
       copyWrap.className = "jms-boot-splash-copy";
@@ -616,7 +652,8 @@ namespace Jellyfin.Plugin.JMSFusion
 
     var logoEl = layer.querySelector("#" + LOGO_ID);
     if (logoEl) {
-      var resolvedLogoLabel = text(logoLabel, title);
+      var brandNameEl = logoEl.querySelector(".jms-boot-splash-brand-name");
+      var resolvedLogoLabel = text(brandNameEl && brandNameEl.textContent, text(logoLabel, title));
       logoEl.setAttribute("aria-label", resolvedLogoLabel);
       logoEl.setAttribute("title", resolvedLogoLabel);
     }
@@ -1041,7 +1078,10 @@ html[data-jms-custom-splash="1"] #${LOGO_ID} {
   top: auto !important;
   bottom: auto !important;
   z-index: 1;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22em;
   place-self: center;
   justify-self: center !important;
   align-self: center !important;
@@ -1049,19 +1089,32 @@ html[data-jms-custom-splash="1"] #${LOGO_ID} {
   height: min(38vw, 125px);
   min-width: 188px;
   max-width: 340px;
-  aspect-ratio: 16 / 10;
   margin: 0 auto 4px !important;
   padding: 0 !important;
   opacity: 1;
   visibility: visible;
-  background-position: center center !important;
-  background-repeat: no-repeat !important;
-  background-size: contain !important;
+  background: none !important;
+  color: #fff;
+  font: 700 min(12vw, 64px)/1 var(--jms-splash-font-display);
+  letter-spacing: -0.02em;
   filter:
     drop-shadow(0 20px 40px rgba(0, 0, 0, 0.46))
     drop-shadow(0 0 32px rgba(112, 165, 255, 0.2));
   transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 420ms ease;
   transform: none !important;
+}
+html[data-jms-custom-splash="1"] #${LOGO_ID} .jms-boot-splash-brand-icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 1.45em;
+  height: 1.45em;
+  object-fit: contain;
+}
+html[data-jms-custom-splash="1"] #${LOGO_ID} .jms-boot-splash-brand-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 html[data-jms-custom-splash="1"] .jms-boot-splash-copy {
   box-sizing: border-box;

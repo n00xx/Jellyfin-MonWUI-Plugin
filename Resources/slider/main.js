@@ -1133,16 +1133,11 @@ function getCurrentCustomSplashUserName() {
   }
 }
 
-function getCustomSplashLoadingFallback(title) {
-  const safeTitle = String(title || "MonWui").trim() || "MonWui";
-  const lang = (typeof getDefaultLanguage === "function" ? getDefaultLanguage() : null) || "spa";
-
-  switch (lang) {
-    case "eng":
-      return `${safeTitle} is starting`;
-    default:
-      return `${safeTitle} se está iniciando`;
-  }
+// One word in every language, by choice: this fork's splash reads "Iniciando" even when the
+// rest of the UI is English. Keep it in step with `captions` in AssetVersioning.cs, which
+// paints the same line before this module loads.
+function getCustomSplashLoadingFallback() {
+  return "Iniciando";
 }
 
 function resolveCustomSplashDefaults(labels = {}) {
@@ -1202,8 +1197,11 @@ function applyCustomSplashCopy() {
   root.style.setProperty(CUSTOM_SPLASH_CAPTION_VAR, JSON.stringify(copy.caption));
   const logo = document.getElementById(CUSTOM_SPLASH_LOGO_ID);
   if (logo) {
-    logo.setAttribute("aria-label", copy.title);
-    logo.setAttribute("title", copy.title);
+    // The boot script paints the server's name inside the logo; label it by what it shows.
+    const brandName = logo.querySelector(".jms-boot-splash-brand-name")?.textContent?.trim();
+    const logoLabel = brandName || copy.title;
+    logo.setAttribute("aria-label", logoLabel);
+    logo.setAttribute("title", logoLabel);
   }
   try {
     getCustomSplashProgressApi()?.syncCopy?.(copy);

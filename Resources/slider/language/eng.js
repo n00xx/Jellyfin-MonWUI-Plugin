@@ -1420,7 +1420,7 @@ export const languageLabels = {
   enableCustomSplashScreen: "Enable custom splash screen",
   customSplashTitleLabel: "Splash title",
   customSplashTitle: "MonWui",
-  customSplashLoadingText: "MonWui is starting",
+  customSplashLoadingText: "Iniciando",
   customSplashGreetingMorning: "Good morning",
   customSplashGreetingAfternoon: "Good afternoon",
   customSplashGreetingEvening: "Good evening",
