@@ -138,6 +138,13 @@ function detectProfile() {
   }
 }
 
+// A key naming a user, server or library id (32-hex or dashed GUID) is data one browser holds
+// about one instance, never a shared UI setting: user-<userId>-<serverId> is a user's record,
+// <userId>-homesection0 and kefinTweaks_watchlist_movies_<userId> are theirs too. Mirrors
+// UserSettingsController; no lookbehind, which older Safari cannot parse.
+const INSTANCE_ID_IN_KEY =
+  /(^|[^0-9a-f])(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})([^0-9a-f]|$)/i;
+
 function isDeniedKey(key) {
   const normalized = String(key || "").trim();
   const lowered = normalized.toLowerCase();
@@ -145,6 +152,7 @@ function isDeniedKey(key) {
   if (DENY_KEYS.has(normalized)) return true;
   if (DENY_PREFIXES.some(prefix => lowered.startsWith(prefix))) return true;
   if (/token|credential|session/i.test(normalized)) return true;
+  if (INSTANCE_ID_IN_KEY.test(normalized)) return true;
   return false;
 }
 
