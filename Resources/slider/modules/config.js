@@ -1655,6 +1655,8 @@ export async function publishAdminSnapshotIfForced() {
           cache: "no-store",
           headers: {
             "Content-Type": "application/json",
+            // Publish requires an administrator, and Jellyfin 12 only reads Authorization.
+            "Authorization": `MediaBrowser Token="${String(token).replace(/"/g, "")}"`,
             "X-Emby-Token": token
           },
           body: JSON.stringify({ global: globalConfig, profile })

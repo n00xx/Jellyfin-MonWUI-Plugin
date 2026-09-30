@@ -1,3 +1,5 @@
+using MediaBrowser.Common.Api;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using System;
@@ -169,6 +171,8 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             plugin.UpdateConfiguration(cfg);
         }
 
+        // Anonymous on purpose: the blob is UI settings only (sanitized above), and the login
+        // page and boot splash read it before anyone has signed in.
         [HttpGet]
         public IActionResult Get([FromQuery] string? profile = null)
         {
@@ -212,7 +216,10 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             public string? Profile { get; set; }
         }
 
+        // Every browser applies this blob over its own localStorage, so whoever writes it sets
+        // the UI for all users. It used to accept anonymous writes.
         [HttpPost("Publish")]
+        [Authorize(Policy = Policies.RequiresElevation)]
         public IActionResult Publish([FromBody] PublishReq req, [FromQuery] string? profile = null)
         {
             var plugin = JMSFusionPlugin.Instance;

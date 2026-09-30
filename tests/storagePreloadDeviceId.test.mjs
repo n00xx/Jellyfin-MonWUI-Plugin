@@ -86,7 +86,11 @@ console.log("a server snapshot carrying _deviceId2 must not overwrite this brows
 console.log("\n_deviceId2 must never be published, even when registered explicitly");
 {
   const { storage, bridge, publishedBodies } = await loadModule({
-    initialStorage: { _deviceId2: "this-browser" },
+    // Signed in: since v3.7.1.32 nothing is published without a token.
+    initialStorage: {
+      _deviceId2: "this-browser",
+      jellyfin_credentials: JSON.stringify({ Servers: [{ AccessToken: "admin-token", DateLastAccessed: 1 }] }),
+    },
     serverSnapshot: { enableSlider: "true" },
   });
 
