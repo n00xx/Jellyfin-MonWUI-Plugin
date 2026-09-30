@@ -16,6 +16,9 @@ const DENY_KEYS = new Set([
   "serverId",
   "userId",
   "deviceId",
+  // jellyfin-web's real DeviceId key. Shared, it makes every browser one device to Jellyfin,
+  // and a login on any of them revokes that user's token on all the others.
+  "_deviceId2",
   "sessionId",
   "jf_serverAddress",
   "jf_userId",
