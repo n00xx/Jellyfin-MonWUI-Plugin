@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.33",
+        "changelog": "v3.7.1.33 (custom fork)\n\nLos ajustes compartidos ya no llevan datos de usuarios concretos.\n\n- Los ajustes que moui aplica a todos los navegadores se pueden leer sin iniciar sesión, y por el botón \"Publicar global\" habían acabado dentro datos de usuarios: su ficha (permisos, configuración y último inicio de sesión), sus preferencias de inicio y las listas y el progreso que guarda KefinTweaks. Ahora el servidor y el navegador descartan cualquier ajuste cuyo nombre incluya el identificador de un usuario, un servidor o una biblioteca.\n\n- Los ajustes propios de moui no cambian: ninguno lleva un identificador en el nombre.",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.33/JMSFusion-3.7.1.33-server.zip",
+        "checksum": "b7fca5efe5b74dd9b43775fb05d990a6",
+        "timestamp": "2026-09-30T19:06:33.0000000Z"
+      },
+      {
         "version": "3.7.1.32",
         "changelog": "v3.7.1.32 (custom fork)\n\nSolo un administrador puede cambiar los ajustes compartidos de moui.\n\n- Los ajustes que moui aplica a todos los navegadores se podían sobrescribir sin iniciar sesión: cualquiera que conociera la dirección podía cambiar la interfaz de todos los usuarios. Ahora guardarlos exige una sesión de administrador. Leerlos sigue sin pedir sesión, porque la pantalla de inicio de sesión y la de carga los necesitan.\n\n- Si un usuario que no es administrador cambia un ajuste, el cambio se queda en su navegador y los ajustes del administrador siguen llegándole como antes.\n\n- El panel de ajustes y el botón \"Publicar global\" de la página del plugin ahora envían la credencial que Jellyfin 12 acepta.",
         "targetAbi": "12.1.0.0",

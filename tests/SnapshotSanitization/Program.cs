@@ -83,6 +83,38 @@ Console.WriteLine("a stored or published snapshot never carries jellyfin-web's d
     }
 }
 
+Console.WriteLine("\nkeys naming a user, server or library id never pass (served anonymously by Get)");
+{
+    const string userId = "ffac969e9e834b289249f29e5cf5b36b";
+    const string serverId = "94853d4c6a91445ab7199c4ce8c36d12";
+    var instanceKeys = new[]
+    {
+        $"user-{userId}-{serverId}",
+        $"{userId}-homesection0",
+        $"{userId}-5ddaa59a73205234890fdcfc683e14ed-series",
+        $"kefinTweaks_watchlist_movies_{userId}",
+        $"prc:genresListLS:{serverId}|{userId}",
+        $"jf_profileChooser_lastActive::{serverId}",
+        "note-6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
+    };
+
+    var input = new System.Collections.Generic.Dictionary<string, string> { ["enableSlider"] = "true" };
+    foreach (var key in instanceKeys) input[key] = "from-another-browser";
+    var sanitized = JsonDocument.Parse(Sanitize(JsonSerializer.Serialize(input))).RootElement;
+
+    var survivors = new System.Collections.Generic.List<string>();
+    foreach (var key in instanceKeys)
+    {
+        if (sanitized.TryGetProperty(key, out _)) survivors.Add(key);
+    }
+
+    if (survivors.Count == 0) Ok($"all {instanceKeys.Length} instance-scoped keys are dropped");
+    else Fail("survived: " + string.Join(", ", survivors));
+
+    if (sanitized.TryGetProperty("enableSlider", out _)) Ok("ordinary settings still pass");
+    else Fail("enableSlider was dropped too");
+}
+
 Console.WriteLine("\nonly an administrator may write the snapshot every browser adopts");
 {
     // Read as attribute *data* so the harness needs no reference to the ASP.NET types.

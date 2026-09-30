@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JMSFusion.Controllers
@@ -74,11 +75,20 @@ namespace Jellyfin.Plugin.JMSFusion.Controllers
             "avatar-"
         };
 
+        // A key that names a user, server or library id is data one browser holds about one
+        // instance, never a shared UI setting: user-<userId>-<serverId> (a user's record),
+        // <userId>-homesection0, kefinTweaks_watchlist_movies_<userId>... "Publish global" dumps
+        // all of localStorage, so these reached the blob and Get served them to anyone.
+        private static readonly Regex InstanceIdInKey = new(
+            "(?<![0-9a-f])(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
         private static bool ShouldPersistSnapshotKey(string? key)
         {
             var normalized = (key ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(normalized)) return false;
             if (DeniedSnapshotKeys.Contains(normalized)) return false;
+            if (InstanceIdInKey.IsMatch(normalized)) return false;
 
             foreach (var prefix in DeniedSnapshotPrefixes)
             {
