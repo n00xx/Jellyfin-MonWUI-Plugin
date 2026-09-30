@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.31",
+        "changelog": "v3.7.1.31 (custom fork)\n\nCada navegador vuelve a tener su propio identificador de dispositivo.\n\n- Los ajustes compartidos de moui guardaban también el identificador de dispositivo de jellyfin-web (_deviceId2) y lo copiaban a todos los navegadores. Jellyfin veía todos los navegadores como un solo dispositivo y, al iniciar sesión en uno, cerraba la sesión de ese mismo usuario en los demás. Ahora el servidor descarta esa clave al leer y al guardar los ajustes, y el navegador tampoco la publica.\n\n- Ese cierre de sesión inesperado era lo que dejaba la página de Live TV del panel con el error \"Cannot read properties of null (reading 'TunerHosts')\".",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.31/JMSFusion-3.7.1.31-server.zip",
+        "checksum": "9135220d6b0401d9a4a68a2394cae704",
+        "timestamp": "2026-09-30T18:46:34.0000000Z"
+      },
+      {
         "version": "3.7.1.30",
         "changelog": "v3.7.1.30 (custom fork)\n\nLa pantalla de carga ahora lleva el nombre del servidor en lugar de \"Jellyfin\".\n\n- En escritorio, el logo del splash mostraba el ícono con la palabra \"Jellyfin\". moui tomaba prestada la imagen de Jellyfin (banner-light.png), y como su nombre de archivo cambia en cada build de jellyfin-web, no se podía reemplazar solo con CSS. Ahora el plugin trae su propio ícono y al lado pone el nombre del servidor (\"Neexy\"), el mismo que se ve en el header. Si todavía no hay servidor guardado, muestra \"Neexy\".\n\n- El texto bajo el saludo ahora dice \"Iniciando\" en todos los idiomas, en lugar de \"MonWui is starting\" / \"MonWui se está preparando\".",
         "targetAbi": "12.1.0.0",
