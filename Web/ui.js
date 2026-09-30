@@ -707,7 +707,14 @@
         window.ApiClient?.accessToken?.() ||
         window.ApiClient?._accessToken ||
         window.ApiClient?._authToken;
-      if (token) return { "X-Emby-Token": token };
+      // Jellyfin 12 only reads Authorization; X-Emby-Token stays for the plugin's own
+      // endpoints that still fall back to it.
+      if (token) {
+        return {
+          "Authorization": `MediaBrowser Token="${String(token).replace(/"/g, "")}"`,
+          "X-Emby-Token": token
+        };
+      }
     } catch {}
     return {};
   }

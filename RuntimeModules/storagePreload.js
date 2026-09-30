@@ -99,6 +99,34 @@ function hasPendingPublish() {
   try { return originalGetItem(PENDING_PUBLISH_KEY) === "1"; } catch { return false; }
 }
 
+// Publish requires an administrator. Once the server says this user is not one, stop trying
+// for the rest of the page instead of posting on every managed-key change.
+let publishForbidden = false;
+
+function toTimestamp(value) {
+  const time = typeof value === "number" ? value : Date.parse(value);
+  return Number.isFinite(time) ? time : 0;
+}
+
+// The signed-in user's token: ApiClient once the app is up, else the most recently used
+// server in jellyfin-web's stored credentials (the preload runs before the app).
+function readAccessToken() {
+  try {
+    const live = window.ApiClient?.accessToken?.();
+    if (live) return String(live);
+  } catch {}
+  try {
+    const creds = JSON.parse(originalGetItem("jellyfin_credentials") || "null");
+    const servers = Array.isArray(creds?.Servers) ? creds.Servers : [];
+    const latest = servers
+      .filter((server) => server?.AccessToken)
+      .sort((a, b) => toTimestamp(b.DateLastAccessed) - toTimestamp(a.DateLastAccessed))[0];
+    return String(latest?.AccessToken || creds?.AccessToken || "");
+  } catch {
+    return "";
+  }
+}
+
 function detectProfile() {
   try {
     const coarse = window.matchMedia?.("(pointer: coarse)")?.matches === true;
@@ -225,13 +253,27 @@ async function persistSnapshot(snapshot, options = {}) {
     return { ok: true, skipped: true, profile, rev };
   }
 
+  if (publishForbidden) {
+    clearPendingPublish();
+    return { ok: false, skipped: true, reason: "forbidden", profile, rev };
+  }
+
+  const token = readAccessToken();
+  if (!token) {
+    // Left pending on purpose: loadServerSnapshot retries it on a later signed-in load.
+    return { ok: false, skipped: true, reason: "no-token", profile, rev };
+  }
+
   const requestInit = {
     keepalive: options?.keepalive === true,
     method: "POST",
     cache: "no-store",
     headers: {
       "Accept": "application/json",
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      // Jellyfin 12 only reads this header. Token only: a DeviceId here would be one more
+      // device id shared across browsers.
+      "Authorization": `MediaBrowser Token="${token.replace(/"/g, "")}"`
     },
     body: JSON.stringify({
       global: payload,
@@ -241,12 +283,20 @@ async function persistSnapshot(snapshot, options = {}) {
 
   activePersistJson = payloadJson;
   savePromise = fetch(`${SAVE_URL}?profile=${encodeURIComponent(profile)}&ts=${Date.now()}`, requestInit).then(async response => {
+    if (response.status === 403) {
+      // Not an administrator. Drop the pending flag too: kept, it would make this browser's
+      // local values win over the admin's snapshot on every load.
+      publishForbidden = true;
+      clearPendingPublish();
+      return { ok: false, forbidden: true, profile, rev };
+    }
     if (!response.ok) {
       const raw = await response.text().catch(() => "");
       throw new Error(raw || `UserSettings publish HTTP ${response.status}`);
     }
     return response.json().catch(() => ({}));
   }).then(result => {
+    if (result?.forbidden) return result;
     rev = Number(result?.rev || rev || 0);
     bridge.bootstrapOverride = { forceGlobal, global: payload, rev, profile };
     lastPersistedJson = payloadJson;

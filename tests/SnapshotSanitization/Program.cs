@@ -83,5 +83,36 @@ Console.WriteLine("a stored or published snapshot never carries jellyfin-web's d
     }
 }
 
+Console.WriteLine("\nonly an administrator may write the snapshot every browser adopts");
+{
+    // Read as attribute *data* so the harness needs no reference to the ASP.NET types.
+    string AuthorizePolicy(MemberInfo member)
+    {
+        foreach (var attr in member.GetCustomAttributesData())
+        {
+            if (attr.AttributeType.FullName != "Microsoft.AspNetCore.Authorization.AuthorizeAttribute") continue;
+            foreach (var named in attr.NamedArguments)
+            {
+                if (named.MemberName == "Policy") return (string)named.TypedValue.Value ?? "";
+            }
+            if (attr.ConstructorArguments.Count == 1) return (string)attr.ConstructorArguments[0].Value ?? "";
+            return "";
+        }
+        return null;
+    }
+
+    var classPolicy = AuthorizePolicy(controller);
+    var publishPolicy = AuthorizePolicy(controller.GetMethod("Publish")!);
+    var getPolicy = AuthorizePolicy(controller.GetMethod("Get")!);
+
+    if (publishPolicy == "RequiresElevation") Ok("Publish requires the RequiresElevation policy");
+    else Fail($"Publish policy is {(publishPolicy is null ? "missing (anonymous writes)" : $"'{publishPolicy}'")}");
+
+    // Get stays anonymous on purpose: it serves UI settings only, and the login page and boot
+    // splash read it before anyone has signed in.
+    if (classPolicy is null && getPolicy is null) Ok("Get stays readable before sign-in");
+    else Fail($"Get now requires authorization (class={classPolicy ?? "none"}, method={getPolicy ?? "none"})");
+}
+
 Console.WriteLine(failures == 0 ? "\nALL PASS" : $"\n{failures} FAILURE(S)");
 return failures == 0 ? 0 : 1;

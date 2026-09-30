@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.32",
+        "changelog": "v3.7.1.32 (custom fork)\n\nSolo un administrador puede cambiar los ajustes compartidos de moui.\n\n- Los ajustes que moui aplica a todos los navegadores se podían sobrescribir sin iniciar sesión: cualquiera que conociera la dirección podía cambiar la interfaz de todos los usuarios. Ahora guardarlos exige una sesión de administrador. Leerlos sigue sin pedir sesión, porque la pantalla de inicio de sesión y la de carga los necesitan.\n\n- Si un usuario que no es administrador cambia un ajuste, el cambio se queda en su navegador y los ajustes del administrador siguen llegándole como antes.\n\n- El panel de ajustes y el botón \"Publicar global\" de la página del plugin ahora envían la credencial que Jellyfin 12 acepta.",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.32/JMSFusion-3.7.1.32-server.zip",
+        "checksum": "c22e76ebae79e4c2781066ef5ca32a73",
+        "timestamp": "2026-09-30T18:57:12.0000000Z"
+      },
+      {
         "version": "3.7.1.31",
         "changelog": "v3.7.1.31 (custom fork)\n\nCada navegador vuelve a tener su propio identificador de dispositivo.\n\n- Los ajustes compartidos de moui guardaban también el identificador de dispositivo de jellyfin-web (_deviceId2) y lo copiaban a todos los navegadores. Jellyfin veía todos los navegadores como un solo dispositivo y, al iniciar sesión en uno, cerraba la sesión de ese mismo usuario en los demás. Ahora el servidor descarta esa clave al leer y al guardar los ajustes, y el navegador tampoco la publica.\n\n- Ese cierre de sesión inesperado era lo que dejaba la página de Live TV del panel con el error \"Cannot read properties of null (reading 'TunerHosts')\".",
         "targetAbi": "12.1.0.0",
