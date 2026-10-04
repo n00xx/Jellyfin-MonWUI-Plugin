@@ -7,36 +7,43 @@
 // "My Media" card is the whole screen. moui has nothing to add there: its slider, studio row and
 // home rows would only mount empty shells (and, before v3.7.1.34, loop doing so).
 //
-// The answer comes from content, never from a library name. Every doubt — network error,
-// timeout, a response we do not understand — answers "has content", so a paying user can never
-// lose moui to a hiccup.
+// The answer comes from content, never from a library name: does any library the user can see
+// hold anything? Every doubt — network error, timeout, a response we do not understand, a
+// missing count — answers "has content", so a paying user can never lose moui to a hiccup.
+//
+// Why the library views and not /Items: measured on tv.neexy.net (12.1, 12,504 items), the views
+// with ChildCount answer in 20-80 ms, while a recursive /Items count took 1.7-3.4 s, and every
+// home row waits on this answer. /Items also ignored IsFolder=false there, so an expired user's
+// leftover playlists came back as 3 "items".
 
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_NEGATIVE_TTL_MS = 60_000;
 
+// Views whose children are not titles moui can show on its own: playlists and collections point
+// at titles in libraries (an expired user keeps old playlists), Live TV and photos have no row.
+const NON_CONTENT_COLLECTION_TYPES = new Set([
+  "playlists",
+  "boxsets",
+  "livetv",
+  "photos",
+  "channels",
+]);
+
 export function buildUserContentProbeUrl(userId) {
-  const params = new URLSearchParams({
-    userId: String(userId || ""),
-    Recursive: "true",
-    IsFolder: "false",
-    Limit: "1",
-    EnableTotalRecordCount: "true",
-    EnableImages: "false",
-    EnableUserData: "false",
-    Fields: "",
-  });
-  return `/Items?${params}`;
+  return `/Users/${encodeURIComponent(String(userId || ""))}/Views?Fields=ChildCount`;
 }
 
-/** true = the user can see at least one item. Anything unexpected is "true" (fail-open). */
+/** true = some library the user can see has children. Anything unexpected is "true" (fail-open). */
 export function interpretUserContentProbe(payload) {
-  if (!payload || typeof payload !== "object") return true;
-  const items = Array.isArray(payload.Items) ? payload.Items : null;
-  if (items && items.length > 0) return true;
-  const total = Number(payload.TotalRecordCount);
-  if (payload.TotalRecordCount != null && Number.isFinite(total)) return total > 0;
-  if (items) return false;
-  return true;
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.Items)) return true;
+  const contentViews = payload.Items.filter((view) => (
+    !NON_CONTENT_COLLECTION_TYPES.has(String(view?.CollectionType || "").toLowerCase())
+  ));
+  return contentViews.some((view) => {
+    const count = Number(view?.ChildCount);
+    if (view?.ChildCount == null || !Number.isFinite(count)) return true;
+    return count > 0;
+  });
 }
 
 function withTimeout(promise, timeoutMs) {

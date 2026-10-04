@@ -19,29 +19,41 @@ const expectEq = (label, got, want) => {
 
 console.log("probe url");
 {
+  // The user's library views with their child counts: 20-80 ms on tv.neexy.net, against
+  // 1.7-3.4 s for a recursive /Items count over a 12,504-item library. Rows wait on this.
   const url = buildUserContentProbeUrl("abc 123");
   const [path, query] = url.split("?");
   const params = new URLSearchParams(query);
-  expectEq("path", path, "/Items");
-  expectEq("userId is encoded", params.get("userId"), "abc 123");
-  expectEq("recursive", params.get("Recursive"), "true");
-  expectEq("leaf items only", params.get("IsFolder"), "false");
-  expectEq("one item is enough", params.get("Limit"), "1");
-  expectEq("needs the total", params.get("EnableTotalRecordCount"), "true");
+  expectEq("path (the route moui already uses, works on 10.x and 12.x)", path, "/Users/abc%20123/Views");
+  expectEq("asks for child counts", params.get("Fields"), "ChildCount");
   if (/membres|vencid/i.test(url)) fail("the probe must not key off the library name");
   else ok("does not mention any library name");
 }
 
-console.log("\ninterpreting the response");
-expectEq("empty library", interpretUserContentProbe({ Items: [], TotalRecordCount: 0 }), false);
-expectEq("has items", interpretUserContentProbe({ Items: [{ Id: "1" }], TotalRecordCount: 812 }), true);
-expectEq("total only", interpretUserContentProbe({ TotalRecordCount: 3 }), true);
-expectEq("items without a total", interpretUserContentProbe({ Items: [{ Id: "1" }] }), true);
-expectEq("empty items without a total", interpretUserContentProbe({ Items: [] }), false);
-expectEq("total 0 but an item came back", interpretUserContentProbe({ Items: [{ Id: "1" }], TotalRecordCount: 0 }), true);
+console.log("\ninterpreting the response (shapes measured on tv.neexy.net, 2026-10-04)");
+const view = (CollectionType, ChildCount, Type = "CollectionFolder") => ({ CollectionType, ChildCount, Type });
+expectEq("expired: one empty movie library",
+  interpretUserContentProbe({ Items: [view("movies", 0)] }), false);
+expectEq("expired with leftover playlists (they are not content)",
+  interpretUserContentProbe({ Items: [view("movies", 0), view("playlists", 2, "UserView")] }), false);
+expectEq("paying user",
+  interpretUserContentProbe({ Items: [view("boxsets", 90), view("movies", 882), view("tvshows", 470)] }), true);
+expectEq("admin: full libraries next to the empty one",
+  interpretUserContentProbe({ Items: [view("movies", 882), view("movies", 0), view("livetv", 0, "UserView")] }), true);
+expectEq("collections alone are not content (their titles live in libraries)",
+  interpretUserContentProbe({ Items: [view("boxsets", 90)] }), false);
+expectEq("live TV alone is not something moui shows",
+  interpretUserContentProbe({ Items: [view("livetv", 12, "UserView")] }), false);
+expectEq("mixed-content library (no CollectionType) with children",
+  interpretUserContentProbe({ Items: [view(undefined, 5)] }), true);
+expectEq("music library",
+  interpretUserContentProbe({ Items: [view("music", 40)] }), true);
+expectEq("no library at all", interpretUserContentProbe({ Items: [] }), false);
+expectEq("ChildCount missing on a content library (fail-open)",
+  interpretUserContentProbe({ Items: [{ CollectionType: "movies", Type: "CollectionFolder" }] }), true);
 expectEq("null (fail-open)", interpretUserContentProbe(null), true);
 expectEq("string (fail-open)", interpretUserContentProbe("<html>"), true);
-expectEq("unrelated object (fail-open)", interpretUserContentProbe({ ok: true }), true);
+expectEq("no Items array (fail-open)", interpretUserContentProbe({ ok: true }), true);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
