@@ -35,6 +35,8 @@ import {
   waitForManagedSectionDependencyCompletion,
   waitForSectionTailAdvance
 } from "./homeSectionChain.js";
+import { createRetryBudget } from "./homeRowRetry.js";
+import { userHasHomeContent } from "./userContentGate.js";
 
 const config = getConfig();
 const labels = getLanguageLabels?.() || {};
@@ -531,7 +533,13 @@ const GENRE_STATE = {
   batchObserver: null,
   serverId: null,
   _loadMoreArrow: null,
+  // The server answered and the user has no genre at all. That is final for this render; before
+  // v3.7.1.34 it read as "genre hubs incomplete" and re-rendered every 1.4 s, forever.
+  settledEmpty: false,
 };
+
+// Retries for a render that failed or left a block unfinished. Settled-empty blocks never retry.
+const __personalRecsRetryBudget = createRetryBudget({ maxAttempts: 3, baseDelayMs: 1400 });
 
 function makeManagedGenreHubSectionId(index = 0) {
   return `genre-hubs--${Math.max(0, index | 0)}`;
@@ -679,17 +687,33 @@ function clearPersonalRecsRetry() {
   }
 }
 
-function schedulePersonalRecsRetry(ms = 1000, options = {}, reason = "retry") {
+/**
+ * `budgeted` retries (a render that failed or left a block unfinished) back off and stop after
+ * a few attempts; the remaining reasons wait for the home container and stay unbudgeted.
+ */
+function schedulePersonalRecsRetry(ms = 1000, options = {}, reason = "retry", { budgeted = false } = {}) {
+  let delayMs = Math.max(120, ms | 0);
+  if (budgeted) {
+    const next = __personalRecsRetryBudget.next();
+    if (next == null) {
+      prcWarn("retry:budget-exhausted", {
+        reason,
+        attempts: __personalRecsRetryBudget.attempts,
+      });
+      return;
+    }
+    delayMs = Math.max(delayMs, next);
+  }
   clearPersonalRecsRetry();
   prcWarn("retry:scheduled", {
-    delayMs: Math.max(120, ms | 0),
+    delayMs,
     reason,
     force: options?.force === true,
   });
   __personalRecsRetryTo = setTimeout(() => {
     __personalRecsRetryTo = null;
     void renderPersonalRecommendations(options);
-  }, Math.max(120, ms | 0));
+  }, delayMs);
 }
 
 function invalidatePersonalManagedQueue() {
@@ -1807,7 +1831,7 @@ function hasMountedRecommendationUi(runtimeConfig, indexPage) {
     hasRenderablePersonalRecsContent(indexPage);
   const genreOk =
     !runtimeConfig.enableGenreHubs ||
-    hasRenderableGenreHubContent(getScopedSection("genre-hubs", indexPage));
+    hasReadyGenreHubsState(indexPage);
   const bywOk =
     !runtimeConfig.enableBecauseYouWatched ||
     hasReadyBecauseYouWatchedState(indexPage);
@@ -1817,6 +1841,18 @@ function hasMountedRecommendationUi(runtimeConfig, indexPage) {
 
 async function renderPersonalRecommendationsInternal(options = {}) {
   const force = options?.force === true;
+  // First statement, so the caller has already stored this run as __personalRecsMountPromise
+  // and concurrent callers share it instead of starting a second render.
+  if (!(await userHasHomeContent())) {
+    prcLog("render:skip:no-content", { force });
+    clearPersonalRecsRetry();
+    resetPersonalRecsAndGenreState();
+    // Nothing will mount; release anything in the home chain waiting on these blocks.
+    setPersonalRecsDone(true);
+    setBywDone(true);
+    try { __signalGenreHubsDone(); } catch {}
+    return false;
+  }
   if (force) {
     __deferredHomeSectionSeq += 1;
     __bywDeferredPromise = null;
@@ -1930,7 +1966,7 @@ async function renderPersonalRecommendationsInternal(options = {}) {
       (getPersonalRecsDone() && hasRenderablePersonalRecsContent(activeIndexPage));
     const genreOk =
       !runtimeConfig.enableGenreHubs ||
-      (!!window.__jmsGenreHubsDone && hasRenderableGenreHubContent(getScopedSection("genre-hubs", activeIndexPage)));
+      (!!window.__jmsGenreHubsDone && hasReadyGenreHubsState(activeIndexPage));
     const bywOk =
       !runtimeConfig.enableBecauseYouWatched ||
       hasReadyBecauseYouWatchedState(activeIndexPage);
@@ -1950,7 +1986,7 @@ async function renderPersonalRecommendationsInternal(options = {}) {
     const hasPartialShellOnly =
       (runtimeConfig.enablePersonalRecommendations && hasPersonalShell && !hasRenderablePersonalRecsContent(activeIndexPage)) ||
       (runtimeConfig.enableBecauseYouWatched && hasBywShell && !hasRenderableBecauseYouWatchedContent(activeIndexPage)) ||
-      (runtimeConfig.enableGenreHubs && hasGenreShell && !hasRenderableGenreHubContent(getScopedSection("genre-hubs", activeIndexPage)));
+      (runtimeConfig.enableGenreHubs && hasGenreShell && !hasReadyGenreHubsState(activeIndexPage));
     if (hasPartialShellOnly) {
       prcWarn("render:invalidate:stale-shell-only-state", {
         force,
@@ -2098,7 +2134,7 @@ async function renderPersonalRecommendationsInternal(options = {}) {
       const genreAlreadyReady =
         !force &&
         window.__jmsGenreHubsDone === true &&
-        hasRenderableGenreHubContent(getScopedSection("genre-hubs", indexPage));
+        hasReadyGenreHubsState(indexPage);
       if (!genreAlreadyReady) {
         __resetGenreHubsDoneSignal();
         try { window.__jmsGenreFirstReady = false; } catch {}
@@ -2133,7 +2169,7 @@ async function renderPersonalRecommendationsInternal(options = {}) {
       hasReadyBecauseYouWatchedState(indexPage);
     const genreMounted =
       !runtimeConfig.enableGenreHubs ||
-      hasRenderableGenreHubContent(getScopedSection("genre-hubs", indexPage));
+      hasReadyGenreHubsState(indexPage);
     if (personalMounted && bywMounted && genreMounted) {
       prcLog("render:success:managed-blocks-ready", {
         force,
@@ -2144,6 +2180,7 @@ async function renderPersonalRecommendationsInternal(options = {}) {
         genreMounted,
       });
       clearPersonalRecsRetry();
+      __personalRecsRetryBudget.reset();
     } else {
       prcWarn("render:retry:managed-blocks-incomplete", {
         force,
@@ -2153,7 +2190,7 @@ async function renderPersonalRecommendationsInternal(options = {}) {
         bywMounted,
         genreMounted,
       });
-      schedulePersonalRecsRetry(1400, options, "managed-blocks-incomplete");
+      schedulePersonalRecsRetry(1400, options, "managed-blocks-incomplete", { budgeted: true });
     }
 
   } catch (error) {
@@ -2163,7 +2200,7 @@ async function renderPersonalRecommendationsInternal(options = {}) {
       deferredSeq,
       error: error?.message || String(error),
     });
-    schedulePersonalRecsRetry(1400, options, "render-error");
+    schedulePersonalRecsRetry(1400, options, "render-error", { budgeted: true });
   } finally {
     unlockDownScroll();
     __personalRecsBusy = false;
@@ -3929,6 +3966,12 @@ function hasRenderableGenreHubContent(wrap) {
     ));
 }
 
+/** Genre hubs are done: rows are on screen, or the user has no genre at all (settled). */
+function hasReadyGenreHubsState(indexPage) {
+  if (hasRenderableGenreHubContent(getScopedSection("genre-hubs", indexPage))) return true;
+  return GENRE_STATE.settledEmpty === true;
+}
+
 async function renderGenreHubs(indexPage) {
   try { window.__jmsGenreHubsStarted = true; } catch {}
   const homeSections = getHomeSectionsContainer(indexPage);
@@ -3939,11 +3982,21 @@ async function renderGenreHubs(indexPage) {
   enforceOrder(homeSections);
 
   const { userId, serverId } = getSessionInfo();
+  GENRE_STATE.settledEmpty = false;
   const allGenres = await getCachedGenresWeekly(userId);
-  if (!allGenres || !allGenres.length) { __signalGenreHubsDone(); return; }
+  if (!allGenres || !allGenres.length) {
+    // null: the genre list could not be fetched, worth a retry. []: the user has no genre.
+    GENRE_STATE.settledEmpty = Array.isArray(allGenres);
+    __signalGenreHubsDone();
+    return;
+  }
 
   const picked = pickOrderedFirstK(allGenres, getGenreRowsCount());
-  if (!picked.length) { __signalGenreHubsDone(); return; }
+  if (!picked.length) {
+    GENRE_STATE.settledEmpty = true;
+    __signalGenreHubsDone();
+    return;
+  }
   const renderKey = makeGenreHubsRenderKey(userId, serverId, picked);
   const sameRender =
     wrap.dataset.genreRenderKey === renderKey &&
@@ -4513,7 +4566,8 @@ async function getCachedGenresWeekly(userId) {
       const list = await fetchAllGenres(userId);
       return uniqueNormalizedGenres(list);
     } catch {
-      return [];
+      // Not [] — that would read as "this user has no genre" and settle the genre hubs empty.
+      return null;
     }
   }
 }
@@ -4732,6 +4786,8 @@ export function resetPersonalRecsAndGenreState() {
   GENRE_STATE.loading = false;
   GENRE_STATE.wrap = null;
   GENRE_STATE.serverId = null;
+  GENRE_STATE.settledEmpty = false;
+  __personalRecsRetryBudget.reset();
 
   try { __globalGenreHeroLoose.clear(); } catch {}
   try { __globalGenreHeroStrict.clear(); } catch {}

@@ -27,6 +27,7 @@ import { withServer } from "./modules/jfUrl.js";
 import { startBackgroundCollectionIndexer, getBackgroundCollectionIndexerStatus } from "./modules/collectionIndexer.js";
 import { initProfileChooser, syncProfileChooserHeaderButtonVisibility } from "./modules/profileChooser.js";
 import { waitForNativeHomeSectionStability, waitForVisibleHomeSections } from "./modules/homeSectionNative.js";
+import { refreshUserContentVerdict, isNoContentHome, USER_CONTENT_VERDICT_EVENT } from "./modules/userContentGate.js";
 export { loadCSS } from "./modules/playerStyles.js";
 export { waitForAnyVisible };
 const idle = window.requestIdleCallback || ((cb) => setTimeout(cb, 0));
@@ -1569,7 +1570,10 @@ function hideCustomSplash(reason = "ready") {
   });
 
   root.setAttribute("data-jms-custom-splash-reason", reason);
-  const delay = (reason === "config-disabled" || reason === "slider-disabled") ? 0 : CUSTOM_SPLASH_EXIT_SYNC_MS;
+  // Nothing will animate in behind the splash in these cases, so there is nothing to sync with.
+  const delay = (reason === "config-disabled" || reason === "slider-disabled" || reason === "no-content")
+    ? 0
+    : CUSTOM_SPLASH_EXIT_SYNC_MS;
   __customSplashHideTimer = window.setTimeout(() => {
     __customSplashHideTimer = 0;
     finalizeCustomSplashHide(reason);
@@ -2143,6 +2147,10 @@ async function runManagedHomeSectionRecovery({
   await waitForManagedHomeSectionCleanup({ timeoutMs: 2500 });
   if (managedHomeSectionRecoverySeq !== seq) return false;
   if (!isHomeRouteActive() || !isHomeVisible()) return false;
+  if (isNoContentHome()) {
+    homeSectionLog("managedRecovery:skip:no-content", { seq });
+    return true;
+  }
 
   const cfg = getMainConfig();
   const statusBefore = getManagedHomeSectionStatus(cfg);
@@ -2219,6 +2227,10 @@ function scheduleManagedHomeSectionRecovery({
 }
 
 function bootHomeSections(cfg, { eagerStudioHubs = false, forceManagedSections = false } = {}) {
+  if (isNoContentHome()) {
+    homeSectionLog("bootHomeSections:skip:no-content", { eagerStudioHubs });
+    return;
+  }
   homeSectionMountSeq += 1;
   const seq = homeSectionMountSeq;
   clearHomeSectionMountTimers();
@@ -2281,6 +2293,10 @@ function kickManagedHomeSectionsNow(
     reason = "direct-kick",
   } = {}
 ) {
+  if (isNoContentHome()) {
+    homeSectionLog("kickManagedHomeSectionsNow:skip:no-content", { reason });
+    return;
+  }
   const effectiveForceManagedSections = getEffectiveManagedHomeSectionForce(forceManagedSections);
   const sections = {
     studio: shouldRenderStudioHubsUi(cfg),
@@ -5329,6 +5345,8 @@ export async function slidesInit() {
     try { primeQualityFromItems(items); } catch {}
     if (!items.length) {
     console.warn("Hiçbir slayt verisi elde edilemedi.");
+    // No slide will ever become ready, so the splash would sit out its whole 12 s timeout.
+    hideCustomSplash("no-content");
     return;
   }
   window.__totalSlidesPlanned = items.length;
@@ -6010,7 +6028,20 @@ function initializeSliderOnHome({ forceManagedSectionsBoot = false } = {}) {
         stack: new Error().stack?.split("\n").slice(0, 6).join("\n") || "",
       });
 
+      // Not awaited: a paying user's boot must not wait on this request. Every module that
+      // mounts on the home screen awaits the same verdict on its own before touching the DOM.
+      void refreshUserContentVerdict().then((hasContent) => {
+        if (!hasContent) enterNoContentHome("probe");
+      });
+
       await waitForManagedHomeSectionCleanup({ timeoutMs: 2500 });
+
+      // The verdict may already be in (a previous visit, or it beat the cleanup wait). If a
+      // renewal flips it while the refresh is in flight, the verdict listener re-boots the home.
+      if (isNoContentHome()) {
+        enterNoContentHome("known");
+        return;
+      }
 
       if (window.__jmsHomeInitPending) {
         homeSectionLog("initializeSliderOnHome:skip:pending", {
@@ -6156,6 +6187,34 @@ function initializeSliderOnHome({ forceManagedSectionsBoot = false } = {}) {
 
   void start();
 }
+
+/**
+ * The signed-in user can see no item at all — on Neexy, an expired membership, which leaves one
+ * empty library whose image is the renewal QR. moui stands down completely: no slider, no studio
+ * row, no managed rows. jellyfin-web's own home ("My Media" with the QR card) is left alone.
+ */
+function enterNoContentHome(reason = "probe") {
+  if (!isHomeRouteActive()) return;
+  homeSectionWarn("noContent:enter", { reason });
+  window.__jmsHomeInitPending = false;
+  try {
+    cleanupSlider({
+      preserveHomeSections: false,
+      reason: `noContent:${reason}`,
+    });
+  } catch {}
+  try { stopSlideTimer?.(); } catch {}
+  try { clearCycleArm(); } catch {}
+  hideCustomSplash("no-content");
+}
+
+// A membership renewed while the tab is open: the next verdict flips back to "has content".
+window.addEventListener(USER_CONTENT_VERDICT_EVENT, (event) => {
+  if (event?.detail?.hasContent !== true) return;
+  if (!isHomeRouteActive() || !isHomeVisible()) return;
+  homeSectionWarn("noContent:leave", {});
+  bootHomeAfterAuthContextReset();
+});
 
 function cleanupSlider({ preserveHomeSections = false, invalidateBoot = true, reason = "cleanupSlider" } = {}) {
   homeSectionLog("cleanupSlider:start", {
