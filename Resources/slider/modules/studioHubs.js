@@ -19,6 +19,8 @@ import {
 } from "./homeSectionChain.js";
 import { resolveSliderAssetHref } from "./assetLinks.js";
 import { withServer } from "./jfUrl.js";
+import { scopeStudioHubCacheKey, pickStudioBrandSource } from "./studioHubCache.js";
+import { userHasHomeContent } from "./userContentGate.js";
 import { getCachedWatchlistMembership, getWatchlistButtonText } from "./watchlistShared.js";
 import { ensureWatchlistLoaded } from "./watchlist.js";
 import {
@@ -49,8 +51,12 @@ const IMG_TTL   = 7  * 24 * 60 * 60 * 1000;
 // _v6 / _v2: the cached shape changed from one studio object per hub to a list
 // of studio ids. Without the bump the 30-day nameIdMap would keep serving the
 // old single-entity mapping and the fix would look like it did nothing.
-const LS_KEY    = "studioHub_cache_v6";
-const MAP_KEY   = "studioHub_nameIdMap_v6";
+// _v7: both keys gained a `:<userId>` suffix (see studioHubCache.js). The v6 keys
+// were one per browser and leaked one user's studio row to the next.
+const LS_KEY    = "studioHub_cache_v7";
+const MAP_KEY   = "studioHub_nameIdMap_v7";
+const LEGACY_UNSCOPED_KEYS = ["studioHub_cache_v6", "studioHub_nameIdMap_v6"];
+try { LEGACY_UNSCOPED_KEYS.forEach((key) => localStorage.removeItem(key)); } catch {}
 const IMG_KEY   = "studioHub_backdropMap_v2";
 const TAGS_KEY  = "studioHub_seriesTags_v1";
 const STUDIO_ITEMS_LIMIT = 24;
@@ -1115,6 +1121,11 @@ export async function renderStudioHubs() {
     cleanupStudioHubsSection();
     return;
   }
+  if (!(await userHasHomeContent())) {
+    cleanupStudioHubsSection();
+    setStudioHubsReady(true);
+    return;
+  }
   if (__studioHubBusy) return;
   __studioHubBusy = true;
   setStudioHubsReady(false);
@@ -1169,9 +1180,30 @@ export async function renderStudioHubs() {
     }
     if (section) section.style.display = "";
 
-    const cached = loadCache(LS_KEY, CACHE_TTL);
-    const studios = cached || await fetchStudios(__fetchAbort.signal, userId).catch(() => []);
-    if (!cached && studios.length) saveCache(LS_KEY, studios);
+    const studiosCacheKey = scopeStudioHubCacheKey(LS_KEY, userId);
+    const brandMapCacheKey = scopeStudioHubCacheKey(MAP_KEY, userId);
+    const cached = studiosCacheKey ? loadCache(studiosCacheKey, CACHE_TTL) : null;
+    let studiosFetchFailed = false;
+    const studios = cached || await fetchStudios(__fetchAbort.signal, userId).catch(() => {
+      studiosFetchFailed = true;
+      return [];
+    });
+    if (!cached && studios.length && studiosCacheKey) saveCache(studiosCacheKey, studios);
+
+    const source = pickStudioBrandSource({
+      studios,
+      fetchFailed: studiosFetchFailed,
+      fallbackMap: brandMapCacheKey ? loadCache(brandMapCacheKey, MAP_TTL) : null,
+    });
+    if (source.kind === "empty") {
+      // The server answered: this user can see no studio, so no brand can have a title behind
+      // it. Before v3.7.1.34 this fell through to the 30-day map and painted Marvel/Pixar/Disney
+      // for users who could see nothing (an expired membership).
+      row.innerHTML = "";
+      if (section) section.style.display = "none";
+      setStudioHubsReady(true);
+      return;
+    }
 
     // One shared fetch for every brand: the tag axis is how film brands reach their series,
     // which carry the broadcasting network as their studio rather than the production company.
@@ -1185,8 +1217,7 @@ export async function renderStudioHubs() {
     // already hold, so it costs nothing, and caching it would re-create the bug
     // one level up: a stored mapping would outlive new studios, metadata
     // refreshes and registry edits. MAP_KEY is only an offline fallback for
-    // when the studio fetch fails outright.
-    const fallbackMap = loadCache(MAP_KEY, MAP_TTL) || {};
+    // when the studio fetch fails outright (pickStudioBrandSource enforces that).
     const nextMap = {};
     const resolved = [];
 
@@ -1199,10 +1230,10 @@ export async function renderStudioHubs() {
         // Manual entries stay single-entity on purpose: the admin picked one
         // specific studio, so we honour exactly that.
         brand = { canonical: desired, studioIds: [manualId], studioNames: [desired], primaryId: manualId };
-      } else if (studios.length) {
-        brand = resolveStudioBrandEntities(desired, studios);
+      } else if (source.kind === "live") {
+        brand = resolveStudioBrandEntities(desired, source.studios);
       } else {
-        brand = fallbackMap[desired];
+        brand = source.fallbackMap[desired];
       }
 
       if (brand?.studioIds?.length) {
@@ -1211,7 +1242,7 @@ export async function renderStudioHubs() {
       }
     }
 
-    if (studios.length) saveCache(MAP_KEY, nextMap);
+    if (source.kind === "live" && brandMapCacheKey) saveCache(brandMapCacheKey, nextMap);
 
     const resolvedNames = new Set(resolved.map(({ name }) => nameKey(name)));
     for (const desired of wanted) {
@@ -1481,6 +1512,11 @@ export function ensureStudioHubsMounted({ eager=false, force=false } = {}) {
     if (__studioHubsMounting) return;
     __studioHubsMounting = true;
     try {
+      if (!(await userHasHomeContent())) {
+        cleanupStudioHubsSection();
+        setStudioHubsReady(true);
+        return;
+      }
       const host = await waitForVisibleHomeSections({
         timeout: eager ? 4000 : 12000
       });

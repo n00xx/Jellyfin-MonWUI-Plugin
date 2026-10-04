@@ -36,6 +36,13 @@ import {
   registerManagedHomeRowAnchor,
   waitForManagedHomeRowRelease
 } from "./homeSectionChain.js";
+import {
+  createRetryBudget,
+  createRowOutcomeTracker,
+  recordRowOutcome,
+  isRowSettledEmpty,
+} from "./homeRowRetry.js";
+import { userHasHomeContent, isNoContentHome } from "./userContentGate.js";
 
 const config = getConfig();
 const labels = getLanguageLabels?.() || {};
@@ -264,6 +271,10 @@ const STATE = {
     db: null,
     scope: null,
     hadMountedSections: false,
+    // Section key -> the home page element on which every row of that key came back empty. A
+    // non-forced mount (managed recovery asks up to five times) must not re-render them just to
+    // remove them again. Keyed by page because jellyfin-web can swap #indexPage in place.
+    settledEmptyKeys: new Map(),
 };
 
 const __albumPreviewTrackCache = new Map();
@@ -273,6 +284,15 @@ let __recentRowsRetryTo = null;
 let __recentRowsSelfHealObserver = null;
 let __recentRowsSelfHealTimer = null;
 let __recentRowsSelfHealPending = false;
+// Retries for rows that failed or did not finish. A row that came back empty is settled and
+// never retried; see homeRowRetry.js for the loop this replaced.
+const __recentRowsRetryBudget = createRetryBudget({ maxAttempts: 3, baseDelayMs: 1400 });
+let __recentRowsRetryIsBudgeted = false;
+// The self-heal remounts rows that something else wiped out of the DOM. Capped so that a wipe
+// that keeps happening cannot turn into another remount loop.
+const RECENT_ROWS_SELF_HEAL_MAX = 3;
+const RECENT_ROWS_SELF_HEAL_WINDOW_MS = 60_000;
+let __recentRowsSelfHealHistory = [];
 
 const RECENT_ROW_SECTION_META = Object.freeze({
   top10SeriesRows: {
@@ -4098,6 +4118,7 @@ function scheduleRecentRowsSelfHeal(reason = "mutation", delayMs = 180) {
     __recentRowsSelfHealPending = false;
     if (!STATE.hadMountedSections) return;
     if (!isRecentRowsHomeRoute() || !getActiveHomePage()) return;
+    if (isNoContentHome()) return;
 
     const cfg = getConfig();
     if (cfg?.enableSlider === false) return;
@@ -4105,6 +4126,18 @@ function scheduleRecentRowsSelfHeal(reason = "mutation", delayMs = 180) {
     const sectionKeys = getOrderedRecentRowSectionKeys(cfg, runtimeCfg);
     if (!sectionKeys.length) return;
     if (hasAnyManagedRecentRowsSections(sectionKeys)) return;
+
+    const now = Date.now();
+    __recentRowsSelfHealHistory = __recentRowsSelfHealHistory
+      .filter((at) => now - at < RECENT_ROWS_SELF_HEAL_WINDOW_MS);
+    if (__recentRowsSelfHealHistory.length >= RECENT_ROWS_SELF_HEAL_MAX) {
+      recentRowsWarn("self-heal:skip:circuit-open", {
+        reason,
+        recentRemounts: __recentRowsSelfHealHistory.length,
+      });
+      return;
+    }
+    __recentRowsSelfHealHistory = [...__recentRowsSelfHealHistory, now];
 
     recentRowsWarn("self-heal:remount", {
       reason,
@@ -4176,7 +4209,10 @@ async function fillSectionWithItems({
   allowEmptyRow = false,
   emptyMessage = "",
   deferNetworkRender = false,
+  outcome = null,
 }) {
+  // A deferred row reports "pending" first and its real outcome when the fetch answers.
+  const recordOutcome = (kind) => recordRowOutcome(outcome, kind, { resolvesPending: deferNetworkRender });
   const { section, row, heroHost, scrollWrap } = buildSectionSkeleton({
     titleText,
     badgeType,
@@ -4327,6 +4363,11 @@ async function fillSectionWithItems({
   const removeSection = () => {
     stopProgressiveRender();
     try { section.parentElement?.removeChild(section); } catch {}
+    // Removing our own empty row is not damage for the self-heal to repair; left armed, it
+    // remounted the row, which came back empty and removed itself again, forever.
+    if (!hasAnyManagedRecentRowsSections(Object.keys(RECENT_ROW_SECTION_META))) {
+      STATE.hadMountedSections = false;
+    }
     return false;
   };
 
@@ -4474,29 +4515,37 @@ async function fillSectionWithItems({
   }
 
   if (cachedFresh) {
+    recordRowOutcome(outcome, "rendered");
     return true;
   }
 
   const fetchAndRender = async () => {
     let items = [];
+    let fetchFailed = false;
     try {
       items = await fetcher();
     } catch (e) {
       console.warn("recentRows: fillSection fetcher error:", e);
       items = [];
+      fetchFailed = true;
     }
 
     if (!isRenderCurrent()) {
+      recordOutcome("stale");
       return false;
     }
 
     if (!items?.length) {
       if (!cachedItems?.length) {
         if (allowEmptyRow) {
-          return renderEmptyState(resolveEmptyMessage());
+          const shown = renderEmptyState(resolveEmptyMessage());
+          recordOutcome(shown ? "rendered" : "stale");
+          return shown;
         }
+        recordOutcome(fetchFailed ? "error" : "empty");
         return removeSection();
       }
+      recordOutcome("rendered");
       return true;
     }
 
@@ -4508,16 +4557,22 @@ async function fillSectionWithItems({
         const progressUnchanged =
           !showProgress ||
           samePlaybackProgressByOrder(cachedItems, items, compareCount);
-        if (progressUnchanged) return true;
+        if (progressUnchanged) {
+          recordOutcome("rendered");
+          return true;
+        }
       }
     }
 
-    return renderResolvedItems(items, {
+    const rendered = await renderResolvedItems(items, {
       aboveFoldLimit: IS_MOBILE ? 4 : 6
     });
+    recordOutcome(rendered ? "rendered" : "stale");
+    return rendered;
   };
 
   if (deferNetworkRender) {
+    recordRowOutcome(outcome, "pending");
     void fetchAndRender();
     return true;
   }
@@ -4659,19 +4714,41 @@ function clearRecentRowsRetry() {
     clearTimeout(__recentRowsRetryTo);
     __recentRowsRetryTo = null;
   }
+  __recentRowsRetryIsBudgeted = false;
 }
 
-function scheduleRecentRowsRetry(ms = 1000, options = {}, reason = "retry") {
+/**
+ * `budgeted` retries (a row that failed or never finished) back off and stop after a few
+ * attempts; the remaining reasons wait for the home container to exist and stay unbudgeted.
+ */
+function scheduleRecentRowsRetry(ms = 1000, options = {}, reason = "retry", { budgeted = false } = {}) {
+  let delayMs = Math.max(120, ms | 0);
+  if (budgeted) {
+    // One queued retry remounts every section, so sibling sections failing in the same pass
+    // share it instead of each spending an attempt.
+    if (__recentRowsRetryTo && __recentRowsRetryIsBudgeted) return;
+    const next = __recentRowsRetryBudget.next();
+    if (next == null) {
+      recentRowsWarn("retry:budget-exhausted", {
+        reason,
+        attempts: __recentRowsRetryBudget.attempts,
+      });
+      return;
+    }
+    delayMs = Math.max(delayMs, next);
+  }
   clearRecentRowsRetry();
   recentRowsWarn("retry:scheduled", {
-    delayMs: Math.max(120, ms | 0),
+    delayMs,
     reason,
     force: options?.force === true,
   });
+  __recentRowsRetryIsBudgeted = budgeted;
   __recentRowsRetryTo = setTimeout(() => {
     __recentRowsRetryTo = null;
+    __recentRowsRetryIsBudgeted = false;
     void mountRecentRowsLazy(options);
-  }, Math.max(120, ms | 0));
+  }, delayMs);
 }
 
 async function mountRecentRowsSection(sectionKey, { force = false, options = {}, homeParent = null } = {}) {
@@ -4680,11 +4757,14 @@ async function mountRecentRowsSection(sectionKey, { force = false, options = {},
     STATE.hostEl = mountState.container;
   }
 
-  if (!force && hasAcceptedRecentRowsMountState(sectionKey)) {
+  const settledEmptyHere =
+    !!mountState.page && STATE.settledEmptyKeys.get(sectionKey) === mountState.page;
+  if (!force && (hasAcceptedRecentRowsMountState(sectionKey) || settledEmptyHere)) {
     recentRowsLog("mount:skip:already-rendered", {
       force,
       sectionKey,
       sectionCount: getManagedRecentRowsSections(sectionKey).length,
+      settledEmpty: settledEmptyHere,
     });
     clearRecentRowsRetry();
     setManagedRecentRowsDone(sectionKey, true);
@@ -4714,17 +4794,30 @@ async function mountRecentRowsSection(sectionKey, { force = false, options = {},
       });
       cleanupManagedRecentRowsSections(sectionKey, currentMountState.container);
       cleanupLegacyRecentRowsWrap(sectionKey);
-      await initAndRender({
+      const rowOutcome = await initAndRender({
         sectionKey,
         mountState: currentMountState,
       });
       if (!hasAcceptedRecentRowsMountState(sectionKey)) {
+        if (isRowSettledEmpty(rowOutcome)) {
+          // Every row of this section asked the server and got nothing back. That is an
+          // answer, not a failure: retrying it re-mounted and removed the rows every 1.4 s.
+          recentRowsLog("render:settled-empty", {
+            force,
+            sectionKey,
+            plannedRows: rowOutcome.planned,
+          });
+          if (currentMountState.page) STATE.settledEmptyKeys.set(sectionKey, currentMountState.page);
+          setManagedRecentRowsDone(sectionKey, true);
+          return true;
+        }
         recentRowsWarn("render:done-but-empty", {
           force,
           sectionKey,
           sectionCount: getManagedRecentRowsSections(sectionKey).length,
+          outcome: rowOutcome || null,
         });
-        scheduleRecentRowsRetry(1400, options, `render-done-but-empty:${sectionKey}`);
+        scheduleRecentRowsRetry(1400, options, `render-done-but-empty:${sectionKey}`, { budgeted: true });
         return false;
       }
       recentRowsLog("render:success", {
@@ -4750,7 +4843,7 @@ async function mountRecentRowsSection(sectionKey, { force = false, options = {},
       sectionKey,
       error: e?.message || String(e),
     });
-    scheduleRecentRowsRetry(1400, options, `render-error:${sectionKey}`);
+    scheduleRecentRowsRetry(1400, options, `render-error:${sectionKey}`, { budgeted: true });
     return false;
   }
 }
@@ -4798,9 +4891,19 @@ export async function mountRecentRowsLazy(options = {}) {
   });
 
   const run = (async () => {
+    // Inside `run`, not before it: an await ahead of the __recentMountPromise assignment would
+    // let two concurrent callers both start a mount.
+    if (!(await userHasHomeContent())) {
+      recentRowsLog("mount:skip:no-content", { force });
+      cleanupRecentRows({ resetRetryState: false });
+      // Nothing will mount; release anything in the home chain waiting on these sections.
+      Object.keys(RECENT_ROW_SECTION_META).forEach((key) => setManagedRecentRowsDone(key, true));
+      return false;
+    }
     if (force) {
       recentRowsWarn("mount:force:cleanup-before-render", { force });
-      cleanupRecentRows();
+      // Keep the retry budget and self-heal history: forced remounts are exactly what they cap.
+      cleanupRecentRows({ resetRetryState: false });
     }
 
     const host = await waitForVisibleHomeSections({
@@ -4867,6 +4970,7 @@ export async function mountRecentRowsLazy(options = {}) {
         allOk = false;
       }
     }
+    if (allOk) __recentRowsRetryBudget.reset();
     return allOk;
   })();
 
@@ -4946,6 +5050,7 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
   STATE.userId = userId;
   STATE.serverId = serverId;
   setManagedRecentRowsDone(sectionKey, false);
+  const rowOutcome = createRowOutcomeTracker();
 
   try {
     await ensureRecentDb();
@@ -4976,6 +5081,7 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
       sectionKey,
       sectionId: makeManagedRecentRowsSectionId(sectionKey, plannedSectionIndex++),
       ...options,
+      outcome: rowOutcome,
     });
 
   if (runtimeCfg.enableTop10Series) {
@@ -5706,6 +5812,8 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
       [...recentPlans, ...episodePlans]
     );
 
+    rowOutcome.planned = runners.length;
+    let ranEveryRunner = true;
     if (runners.length) {
       recentRowsTrace("init:runners", {
         sectionKey,
@@ -5713,23 +5821,38 @@ async function initAndRender({ sectionKey = "recentRows", mountState = null } = 
       });
       for (let i = 0; i < runners.length; i++) {
         const run = runners[i];
-        if (!isRecentRowsMountStateValid(mountState)) break;
+        if (!isRecentRowsMountStateValid(mountState)) {
+          ranEveryRunner = false;
+          break;
+        }
         try {
           await run();
         } catch (e) {
           console.warn("recentRows: runner error:", e);
+          recordRowOutcome(rowOutcome, "error");
         }
         if (i < runners.length - 1 && isRecentRowsMountStateValid(mountState)) {
           await yieldRecentRowsSectionStep();
         }
       }
     }
+    rowOutcome.completed = ranEveryRunner;
+    return rowOutcome;
   } finally {
     setManagedRecentRowsDone(sectionKey, true);
   }
 }
 
-export function cleanupRecentRows() {
+/**
+ * `resetRetryState: false` keeps the retry budget and the self-heal history; internal forced
+ * remounts pass it, so the caps survive the very remounts they limit. Leaving the home (the
+ * main.js cleanup, called without arguments) starts the next visit with a full budget.
+ */
+export function cleanupRecentRows({ resetRetryState = true } = {}) {
+  if (resetRetryState) {
+    __recentRowsRetryBudget.reset();
+    __recentRowsSelfHealHistory = [];
+  }
   try {
     recentRowsLog("cleanup:start", {
       started: !!STATE.started,
@@ -5767,6 +5890,7 @@ export function cleanupRecentRows() {
     STATE.otherLibs = [];
     STATE.allLibs = [];
     STATE.hadMountedSections = false;
+    STATE.settledEmptyKeys = new Map();
     __recentRowsSelfHealPending = false;
     if (__recentRowsSelfHealTimer) {
       clearTimeout(__recentRowsSelfHealTimer);

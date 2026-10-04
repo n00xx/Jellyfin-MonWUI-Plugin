@@ -31,6 +31,8 @@ import {
   waitForManagedSectionDependencyCompletion,
   waitForManagedHomeRowRelease
 } from "./homeSectionChain.js";
+import { createRetryBudget } from "./homeRowRetry.js";
+import { userHasHomeContent, isNoContentHome } from "./userContentGate.js";
 import {
   openDirRowsDB,
   makeScope,
@@ -224,6 +226,9 @@ let __dirEligibilityRefreshScope = "";
 let __directorMountPromise = null;
 let __directorDeferredStartPromise = null;
 let __directorRowsRetryTo = null;
+// Retries for a render that failed or showed nothing although directors exist. A user with no
+// director at all is settled and never retried; see homeRowRetry.js.
+const __directorRowsRetryBudget = createRetryBudget({ maxAttempts: 3, baseDelayMs: 1400 });
 let __directorDeferredSeq = 0;
 let __directorRowsSelfHealObserver = null;
 let __directorRowsSelfHealTimer = null;
@@ -333,6 +338,7 @@ function scheduleDirectorRowsSelfHeal(reason = "mutation", delayMs = 180) {
     __directorRowsSelfHealPending = false;
     if (!STATE.hadMountedSections) return;
     if (!isHomeRoute()) return;
+    if (isNoContentHome()) return;
     const cfg = getConfig();
     if (cfg?.enableSlider === false) return;
     const homeSectionsConfig = getHomeSectionsRuntimeConfig(cfg);
@@ -2314,17 +2320,34 @@ function clearDirectorRowsRetry() {
   }
 }
 
-function scheduleDirectorRowsRetry(ms = 1000, options = {}, reason = "retry") {
+/**
+ * `budgeted` retries back off and stop after a few attempts; the remaining reasons wait for
+ * the home container to exist and stay unbudgeted.
+ */
+function scheduleDirectorRowsRetry(ms = 1000, options = {}, reason = "retry", { budgeted = false } = {}) {
+  let delayMs = Math.max(120, ms | 0);
+  if (budgeted) {
+    const next = __directorRowsRetryBudget.next();
+    if (next == null) {
+      dirRowsWarn("retry:budget-exhausted", {
+        reason,
+        attempts: __directorRowsRetryBudget.attempts,
+      });
+      setDirectorRowsDone(true);
+      return;
+    }
+    delayMs = Math.max(delayMs, next);
+  }
   clearDirectorRowsRetry();
   dirRowsWarn("retry:scheduled", {
-    delayMs: Math.max(120, ms | 0),
+    delayMs,
     reason,
     force: options?.force === true,
   });
   __directorRowsRetryTo = setTimeout(() => {
     __directorRowsRetryTo = null;
     void mountDirectorRowsLazy(options);
-  }, Math.max(120, ms | 0));
+  }, delayMs);
 }
 
 function scheduleDirectorInitWhenReady(mountState, { force = false } = {}) {
@@ -2409,12 +2432,20 @@ function scheduleDirectorInitWhenReady(mountState, { force = false } = {}) {
       });
       await initAndRenderFirstBatch(currentMountState);
       if (!hasRenderableDirectorRowsContent()) {
+        if (seq === __directorDeferredSeq && STATE.started && Array.isArray(STATE.directors) && !STATE.directors.length) {
+          // The user has no director at all. That is an answer, not a failure: retrying it
+          // re-rendered the rows every 1.4 s, forever.
+          dirRowsLog("render:settled-empty", { force, seq });
+          clearDirectorRowsRetry();
+          setDirectorRowsDone(true);
+          return true;
+        }
         dirRowsWarn("render:done-but-empty", {
           force,
           seq,
           sectionCount: getManagedDirectorSections().length,
         });
-        scheduleDirectorRowsRetry(1400, { force: true }, "render-done-but-empty");
+        scheduleDirectorRowsRetry(1400, { force: true }, "render-done-but-empty", { budgeted: true });
         return false;
       }
       dirRowsLog("render:success", {
@@ -2423,6 +2454,7 @@ function scheduleDirectorInitWhenReady(mountState, { force = false } = {}) {
         sectionCount: getManagedDirectorSections().length,
       });
       clearDirectorRowsRetry();
+      __directorRowsRetryBudget.reset();
       return true;
     } catch (e) {
       console.error(e);
@@ -2431,8 +2463,8 @@ function scheduleDirectorInitWhenReady(mountState, { force = false } = {}) {
         seq,
         error: e?.message || String(e),
       });
-      scheduleDirectorRowsRetry(1400, { force: true }, "render-error");
-      try { cleanupDirectorRows(); } catch {}
+      scheduleDirectorRowsRetry(1400, { force: true }, "render-error", { budgeted: true });
+      try { cleanupDirectorRows({ resetRetryState: false }); } catch {}
       return false;
     }
   }, {
@@ -2495,9 +2527,20 @@ export async function mountDirectorRowsLazy(options = {}) {
   });
 
   const run = (async () => {
+    // Inside `run`, not before it: an await ahead of the __directorMountPromise assignment would
+    // let two concurrent callers both start a mount.
+    if (!(await userHasHomeContent())) {
+      dirRowsLog("mount:skip:no-content", { force });
+      clearDirectorRowsRetry();
+      try { cleanupDirectorRows({ resetRetryState: false }); } catch {}
+      // Nothing will mount; release anything in the home chain waiting on this section.
+      setDirectorRowsDone(true);
+      return false;
+    }
     if (force) {
       dirRowsWarn("mount:force:cleanup-before-render", { force });
-      cleanupDirectorRows();
+      // Keep the retry budget: forced remounts are exactly what it caps.
+      cleanupDirectorRows({ resetRetryState: false });
     }
 
     const host = await waitForVisibleHomeSections({
@@ -2609,7 +2652,7 @@ async function initAndRenderFirstBatch(mountState) {
       !STATE.wrapEl.isConnected ||
       (mountKey && STATE.wrapEl !== mountKey);
     if (!stale) return;
-    try { cleanupDirectorRows(); } catch {}
+    try { cleanupDirectorRows({ resetRetryState: false }); } catch {}
   }
 
   const initSeq = ++__dirInitSeq;
@@ -3061,7 +3104,13 @@ async function fillRowWhenReady(row, dir, heroHost){
   }
 }
 
-export function cleanupDirectorRows() {
+/**
+ * `resetRetryState: false` keeps the retry budget; internal forced remounts pass it, so the cap
+ * survives the very remounts it limits. Leaving the home (the main.js cleanup, called without
+ * arguments) starts the next visit with a full budget.
+ */
+export function cleanupDirectorRows({ resetRetryState = true } = {}) {
+  if (resetRetryState) __directorRowsRetryBudget.reset();
   try {
     dirRowsLog("cleanup:start", {
       started: !!STATE.started,
