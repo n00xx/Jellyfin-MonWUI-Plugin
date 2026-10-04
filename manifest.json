@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/n00xx/Jellyfin-MonWUI-Plugin/main/img/icon.png",
     "versions": [
       {
+        "version": "3.7.1.34",
+        "changelog": "v3.7.1.34 (custom fork)\n\nLa pantalla de membresía vencida carga limpia: sin parpadeo, con el QR y sin la fila de estudios.\n\n- Un usuario con la membresía vencida solo ve una biblioteca vacía. moui intentaba montar sus filas de inicio, no encontraba nada, las quitaba y volvía a intentarlo cada pocos segundos, sin fin: ese era el parpadeo, y movía de sitio la tarjeta del QR. Ahora, si ninguna biblioteca del usuario tiene contenido, moui no monta nada en el inicio (ni slider, ni estudios, ni filas) y deja solo \"Mis medios\" con el QR. Al renovar, la siguiente visita al inicio vuelve a mostrarlo todo.\n\n- El mismo bucle afectaba a usuarios con contenido cuando una fila salía vacía, por ejemplo \"Continuar viendo\" sin nada empezado. Una fila vacía ahora se da por terminada; solo se reintenta si hubo un error, y como mucho tres veces.\n\n- La pantalla \"Iniciando\" ya no espera 12 segundos cuando el slider no tiene nada que mostrar.\n\n- La fila de estudios se guardaba una sola vez por navegador, así que un usuario podía ver los estudios de la sesión anterior. Ahora se guarda por usuario, y si el usuario no ve ningún estudio la fila no aparece.",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/n00xx/Jellyfin-MonWUI-Plugin/releases/download/v3.7.1.34/JMSFusion-3.7.1.34-server.zip",
+        "checksum": "dbf815628a02cf844b83789027107e6f",
+        "timestamp": "2026-10-04T23:34:57.0000000Z"
+      },
+      {
         "version": "3.7.1.33",
         "changelog": "v3.7.1.33 (custom fork)\n\nLos ajustes compartidos ya no llevan datos de usuarios concretos.\n\n- Los ajustes que moui aplica a todos los navegadores se pueden leer sin iniciar sesión, y por el botón \"Publicar global\" habían acabado dentro datos de usuarios: su ficha (permisos, configuración y último inicio de sesión), sus preferencias de inicio y las listas y el progreso que guarda KefinTweaks. Ahora el servidor y el navegador descartan cualquier ajuste cuyo nombre incluya el identificador de un usuario, un servidor o una biblioteca.\n\n- Los ajustes propios de moui no cambian: ninguno lleva un identificador en el nombre.",
         "targetAbi": "12.1.0.0",
