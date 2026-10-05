@@ -1,7 +1,8 @@
 # Plan — Auditoría responsiva de moui (celulares y tablets, iOS/Android)
 
 **Fecha:** 2026-10-04
-**Estado:** **Auditoría estática terminada. Nada de código tocado.** Fases 0–7 pendientes de CONFIRM.
+**Estado:** **Fases 0, 1, 2, 4 (slider por defecto), 5 y 6 (parcial) ejecutadas y verificadas** contra el
+servidor real (2026-10-05). Fase 3 no se hizo (§6). El release v3.7.1.36 está pendiente de CONFIRM: ver §6.
 **Servidor medido:** `http://192.168.8.207:30013` — Jellyfin **12.1.0** (`Neexy`), plugin 3.7.1.35.
 **Alcance:** `Resources/slider/` — 24 hojas CSS (~800 KB, sin contar FontAwesome), ~130 módulos JS (~5 MB)
 y el CSS que esos módulos inyectan en tiempo de ejecución (21 módulos).
@@ -321,3 +322,67 @@ Ya existe el patrón correcto en el repo: `@supports not (height:100dvh)` en `pa
 | **Total** | **Alta** | **~20–30 h** |
 
 La Fase 2 es independiente y barata; se puede adelantar sola en un release corto si se quiere el arreglo de iOS ya.
+
+---
+
+## 6. Registro de ejecución (2026-10-05)
+
+Rama `fix/v3.7.1.36`. La verificación usa `tools/mobile-audit.mjs` con 13 perfiles (WebKit
+para iOS, Chromium para Android, y Chromium con el notch real inyectado por CDP) contra
+`192.168.8.207:30013`. Con `--local` sirve este checkout por encima del servidor, así que cada
+arreglo se midió con datos reales **antes** de instalar nada.
+
+### Lo que la línea base confirmó y lo que descartó
+
+| Hallazgo del plan | Resultado medido |
+|---|---|
+| §1.2 Atrás de Android | **Confirmado** en los 13 perfiles: sólo Watchlist cerraba |
+| §1.3 `requestIdleCallback` | **Confirmado**: iOS 27 Safari (simulador) no lo tiene |
+| §1.6 Celular horizontal | **Confirmado**: capas del slider encimadas (sinopsis, ratings, título, botones) |
+| §1.7 Safe-area | **Confirmado** en las ✕ de explorers, detalle, Watchlist, perfiles y notificaciones |
+| Desbordamiento horizontal | **Descartado**: ningún perfil móvil ni tablet desborda |
+| §1.6 Tablets | **Descartado**: iPad y Galaxy Tab sin capas encimadas |
+| §1.8 `vh` → `dvh` | No se tocó: ningún overlay medido corta contenido |
+| No previsto | **401 en `/Items/{id}/LocalTrailers`** y en la sincronización de música (§6.2) |
+| No previsto | El botón de perfil se caía a una 2.ª línea y el header crecía de 48 a 90 px (iPhone SE) |
+
+### 6.1 Commits
+
+| Commit | Qué |
+|---|---|
+| `96bdbb7` / `9f7a3b2` | Fase 2: `requestIdleCallback` con guarda en pauseModul; la lookbehind de artistModal fuera (prueba de 3000 casos idénticos, lineal) |
+| `ed9d787` | 12.1: `fetchLocalTrailers` y la sincronización de música mandaban sólo `X-Emby-Token` (401 → 200) |
+| `019f462` / `cf3080f` | Fase 1: `overlayHistory.js` con pila, integrado en 9 overlays; Watchlist migrado |
+| `5836db5` (+ siguiente) | Fases 4–6: `src/mobile.css` (notch, slider horizontal, botón de perfil, ✕ de 40 px en táctil) y el arnés |
+
+### 6.2 Medido después del arreglo (`--local`)
+
+- **Atrás:** `closes` en todos los overlays y perfiles (antes sólo Watchlist).
+- **Notch (iPhone 15 Pro vertical, insets reales):** ninguna ✕ bajo la isla; ✕ de notificaciones
+  25 → 40 px, de explorers 30 → 40 px.
+- **Slider horizontal:** 0 capas encimadas en iPhone 15 Pro y Pixel 7 (antes 4 y 3); botones 20 → 40 px.
+- **Botón de perfil:** header de 90 → 48 px en iPhone SE; avatar dentro de la barra.
+- **401:** los 38 de `LocalTrailers` por pasada → 0. Los errores restantes son de otros plugins
+  (`jf-avatars` 404, `JellyfinHelper` 403).
+- Vertical y escritorio: sin cambios en las capas del slider; las reglas nuevas se reducen a las
+  originales cuando `env()` vale 0 (lo exige `tests/mobileCss.test.mjs`).
+
+### 6.3 Lo que NO se hizo, y por qué
+
+- **Fase 3 (detección de dispositivo única):** la línea base no mostró ningún defecto atribuible a
+  los 8 detectores distintos, y unificarlos toca 8 módulos con riesgo real de regresión. Queda
+  como deuda técnica documentada, no como bug.
+- **Variantes `slider` y `peakslider` en horizontal:** sin medir. La variante se guarda en el
+  servidor por usuario y `storagePreload` pisa cualquier override local; medirlas exige cambiar
+  la configuración de la cuenta de prueba.
+- **Header de Jellyfin bajo el notch:** el `MuiAppBar` de 12.1 no aplica `safe-area-inset-top`.
+  Es de Jellyfin, sólo se nota en modo PWA/app (en Safari el inset superior es 0) y parchearlo
+  desde moui desplazaría todo el layout de Jellyfin.
+- **`-webkit-backdrop-filter`:** iOS 27 soporta el nombre sin prefijo; sólo afecta a iOS < 18.
+- **Overlays sin Atrás todavía:** settingsPage, castModule, paneles de seerr, modales del reproductor.
+
+### 6.4 Pendiente de CONFIRM
+
+1. **Release v3.7.1.36** (version bump, build ×2, zip, md5, manifest a `main`, `gh release`). Llega
+   a todos los servidores que tienen el plugin.
+2. **Prueba en dispositivo real:** Atrás en la app Android, y la app iOS (WKWebView).

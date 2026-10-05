@@ -332,6 +332,9 @@ async function openOverlay(page, screen) {
       await page.evaluate(tagCoveringLayers, "data-audit-before");
       const hashBefore = await page.evaluate(() => location.hash);
       await target.click({ timeout: 5000 }).catch(() => target.dispatchEvent("click"));
+      // With a mouse, the pointer left over a card opens its hover preview on top of the overlay
+      // (and over the bell it re-opens the notifications panel). Park it in a corner.
+      await page.mouse.move(1, (page.viewportSize()?.height || 600) - 1).catch(() => {});
       await page.waitForTimeout(1200);
       await settle(page, OVERLAY_SETTLE_CAP_MS);
       // An opening scale animation moves the close button under elementFromPoint, which would

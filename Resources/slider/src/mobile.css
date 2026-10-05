@@ -62,6 +62,19 @@ html .jf-profile-overlay {
   }
 }
 
+/*
+ * Close buttons a finger has to hit. On phones these are the only way out of their overlay
+ * (the backdrop has no area left to tap), and they measured 25px (notifications) and 30px
+ * (explorers). Touch screens only; with a mouse they keep their size.
+ */
+@media (hover: none) and (pointer: coarse) {
+  .genre-explorer-overlay .ge-close,
+  #jfNotifModal .jf-notif-close {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
+
 /* Watchlist: full screen at <=760px, where its backdrop padding is 0. */
 @media (max-width: 760px) {
   html #monwui-watchlist-modal-root .monwuiwl-backdrop {
