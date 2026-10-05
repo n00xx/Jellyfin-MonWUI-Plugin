@@ -224,7 +224,7 @@ console.log("\ndropAllBackClaims (play from inside an overlay) gives up every cl
   expect("Back from the player closes nothing", ex.closes === 0 && dm.closes === 0);
 }
 
-console.log("\nstarting playback gives up every claim before the player navigates");
+console.log("\noverlays closed right after playback is requested give their entry up in place");
 {
   // playNow(), the cinema pre-roll and the parental PIN gate all announce playback with this
   // event before routing to the player, so no play path has to remember to drop its overlay.
@@ -237,6 +237,36 @@ console.log("\nstarting playback gives up every claim before the player navigate
   await tick();
   expect("no back() raced the player route", history.calls.back === 0, `back ${history.calls.back}`);
   expect("the player route is current", history.entries[history.index].url.endsWith("#/video"));
+}
+
+console.log("\nplayback that never starts leaves Back working");
+{
+  // playNow() announces playback before it knows the outcome. When it then returns false (PIN
+  // cancelled, membership expired, network error) the details modal stays open, and must still
+  // close on Back: the announcement may not cost it its claim.
+  reset();
+  const dm = overlay("details");
+  dm.show();
+  for (const fn of listeners.get("jms:playback-start-requested") || []) fn({ detail: { source: "api.playNow" } });
+  history.back();
+  await tick();
+  expect("Back still closes the overlay", !dm.open && history.index === 0, `open ${dm.open}, index ${history.index}`);
+}
+{
+  // Once the announcement is stale, closing with the overlay's own button pops its entry again.
+  reset();
+  const dm = overlay("details");
+  dm.show();
+  for (const fn of listeners.get("jms:playback-start-requested") || []) fn({ detail: { source: "api.playNow" } });
+  const realNow = Date.now;
+  Date.now = () => realNow() + 60_000;
+  try {
+    dm.hide();
+    await tick();
+  } finally {
+    Date.now = realNow;
+  }
+  expect("a later close gives the entry back", history.index === 0 && history.calls.back === 1, `index ${history.index}, back ${history.calls.back}`);
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASS");

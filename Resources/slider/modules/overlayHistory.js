@@ -12,8 +12,12 @@
 
 const DEPTH_KEY = "jmsOverlayDepth";
 // Dispatched by playNow(), the cinema pre-roll and the parental PIN gate before they route to
-// the player. Every overlay that closes after it is closing to navigate, so none may pop.
+// the player. An overlay that closes shortly after it is closing to navigate, so it may not pop.
+// It is a window, not a drop: playNow() announces before it knows the outcome, and when playback
+// does not start (PIN cancelled, membership expired) the overlay stays open and keeps its claim.
 const PLAYBACK_START_REQUESTED_EVENT = "jms:playback-start-requested";
+const PLAYBACK_NAVIGATION_WINDOW_MS = 3000;
+let navigatingUntil = 0;
 // How long to wait for our own history.back() to land before assuming it never will.
 const BACK_SETTLE_MS = 1000;
 
@@ -83,7 +87,9 @@ function listen() {
   if (listening) return;
   listening = true;
   window.addEventListener("popstate", onPopState);
-  window.addEventListener(PLAYBACK_START_REQUESTED_EVENT, () => dropAllBackClaims());
+  window.addEventListener(PLAYBACK_START_REQUESTED_EVENT, () => {
+    navigatingUntil = Date.now() + PLAYBACK_NAVIGATION_WINDOW_MS;
+  });
 }
 
 function forget(claim) {
@@ -122,6 +128,10 @@ export function claimBackButton(key, onBack) {
   const claim = { key, onBack, depth: 0, handle: null };
   claim.handle = {
     release() {
+      if (Date.now() < navigatingUntil) {
+        claim.handle.drop();
+        return;
+      }
       const gone = forget(claim);
       if (!gone?.pushed || !gone.wasTop) return;
       // Only pop an entry that is still ours. If the router pushed a route on top of it, the
