@@ -169,6 +169,16 @@ export function authHeaders(extra = {}) {
   const headers = { ...extra };
   if (!token) return headers;
 
+  headers.Authorization = mediaBrowserAuthorization(token);
+  headers["X-Emby-Token"] = token;
+  return headers;
+}
+
+/** The `Authorization: MediaBrowser …` value for a given token, or "" without one. */
+export function mediaBrowserAuthorization(token) {
+  const value = String(token || "").trim();
+  if (!value) return "";
+
   const client = (typeof window !== "undefined" ? window.ApiClient : null) || null;
   const safe = (v, fallback) =>
     String(v || fallback).replace(/"/g, "");
@@ -176,9 +186,6 @@ export function authHeaders(extra = {}) {
   const deviceId = safe(client?.deviceId?.(), "jmsfusion-web");
   const version = safe(client?.appVersion?.(), "1.0.0");
 
-  headers.Authorization =
-    `MediaBrowser Client="Jellyfin Web Client", Device="${device}", ` +
-    `DeviceId="${deviceId}", Version="${version}", Token="${token}"`;
-  headers["X-Emby-Token"] = token;
-  return headers;
+  return `MediaBrowser Client="Jellyfin Web Client", Device="${device}", ` +
+    `DeviceId="${deviceId}", Version="${version}", Token="${value}"`;
 }

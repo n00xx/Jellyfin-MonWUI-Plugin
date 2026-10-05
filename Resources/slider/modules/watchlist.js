@@ -1,3 +1,4 @@
+import { claimBackButton } from "./overlayHistory.js";
 import { fetchItemDetailsFull, fetchItemsBulk, getEmbyHeaders, getLastPlayNowBlockReason, getSessionInfo, makeApiRequest, playNow, updateFavoriteStatus } from "../../Plugins/JMSFusion/runtime/api.js";
 import { CollectionCacheDB } from "./collectionCacheDb.js";
 import { getConfig } from "./config.js";
@@ -7442,84 +7443,40 @@ function openShareOverlayForView(root, itemId, view, users, options = {}) {
  * ensureModalRoot() has no backdrop left to hit and the close button is the only pointer
  * escape. These two add the keyboard and hardware-Back routes the modal never had.
  */
-const WATCHLIST_HISTORY_MARKER = "monwuiWatchlistModal";
-let watchlistHistoryDepth = 0;
-let watchlistHistoryUnwinding = false;
+// The Back entry itself is overlayHistory.js, shared with every other moui overlay, so a
+// details modal opened from a watchlist card closes on its own Back without taking the
+// watchlist with it.
+let watchlistBackClaim = null;
 let watchlistDismissListenersBound = false;
 
-function watchlistOwnsCurrentHistoryEntry() {
-  try {
-    return window.history?.state?.[WATCHLIST_HISTORY_MARKER] === true;
-  } catch {
-    return false;
-  }
-}
-
 function pushWatchlistHistoryEntry() {
-  if (watchlistHistoryDepth > 0) return;
-  try {
-    /*
-     * Same URL on purpose: Jellyfin routes on the hash, so pushing an entry whose hash is
-     * unchanged gives Android's Back button something to pop without the SPA router ever
-     * seeing a route change.
-     */
-    window.history.pushState(
-      { ...(window.history.state || {}), [WATCHLIST_HISTORY_MARKER]: true },
-      "",
-      window.location.href
-    );
-    watchlistHistoryDepth = 1;
-  } catch {}
+  if (watchlistBackClaim) return;
+  watchlistBackClaim = claimBackButton("watchlist", () => {
+    watchlistBackClaim = null;
+    closeWatchlistModal({ viaHistory: true }).catch(() => {});
+  });
 }
 
 function unwindWatchlistHistoryEntry() {
-  if (watchlistHistoryDepth <= 0) return;
-  watchlistHistoryDepth = 0;
-  /*
-   * If the SPA pushed its own entry on top of ours, going back would land on that route
-   * instead of dropping our marker. Abandon the claim rather than move the user.
-   */
-  if (!watchlistOwnsCurrentHistoryEntry()) return;
-  watchlistHistoryUnwinding = true;
-  try {
-    window.history.back();
-  } catch {
-    watchlistHistoryUnwinding = false;
-    return;
-  }
-  setTimeout(() => { watchlistHistoryUnwinding = false; }, 600);
+  const claim = watchlistBackClaim;
+  watchlistBackClaim = null;
+  try { claim?.release(); } catch {}
 }
 
 /*
- * Give up the pushed entry without calling history.back(), for callers that close the modal
- * and immediately route somewhere else. back() is async, so racing it against the caller's
- * own navigation can send the user backwards out of the page they just opened. Stripping the
- * marker in place leaves an entry pointing at the pre-modal URL, which is where Back should
- * land from the new route anyway.
+ * Give up the entry without popping it, for callers that close the modal and immediately
+ * route somewhere else: an async history.back() would race that navigation and send the user
+ * backwards out of the page they just opened.
  */
 function dropWatchlistHistoryClaim() {
-  if (watchlistHistoryDepth <= 0) return;
-  watchlistHistoryDepth = 0;
-  if (!watchlistOwnsCurrentHistoryEntry()) return;
-  try {
-    const { [WATCHLIST_HISTORY_MARKER]: _dropped, ...rest } = window.history.state || {};
-    window.history.replaceState(rest, "", window.location.href);
-  } catch {}
+  const claim = watchlistBackClaim;
+  watchlistBackClaim = null;
+  try { claim?.drop(); } catch {}
 }
 
 function ensureWatchlistDismissListeners() {
   if (watchlistDismissListenersBound) return;
   watchlistDismissListenersBound = true;
-
-  window.addEventListener("popstate", () => {
-    if (watchlistHistoryUnwinding) {
-      watchlistHistoryUnwinding = false;
-      return;
-    }
-    if (watchlistHistoryDepth <= 0) return;
-    watchlistHistoryDepth = 0;
-    closeWatchlistModal({ viaHistory: true }).catch(() => {});
-  });
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;

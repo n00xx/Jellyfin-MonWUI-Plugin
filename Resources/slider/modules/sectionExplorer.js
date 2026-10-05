@@ -22,6 +22,7 @@ import {
   getExplorerPointerOrigin,
   isSentinelStillInRange,
 } from "./genreExplorer.js";
+import { claimBackButton } from "./overlayHistory.js";
 
 const PAGE_SIZE = 40;
 const MAX_CARDS = 600;
@@ -42,6 +43,7 @@ const COMMON_FIELDS = [
 export const SECTION_ENDPOINT_NEXT_UP = "nextUp";
 
 let __overlay = null;
+let __backClaim = null;
 let __abort = null;
 let __io = null;
 let __descriptor = null;
@@ -452,6 +454,8 @@ function hashCloser() {
 export function closeSectionExplorer(skipAnimation = false) {
   if (!__overlay) return;
   if (!skipAnimation) { animatedCloseThen(); return; }
+  try { __backClaim?.release(); } catch {}
+  __backClaim = null;
 
   if (__searchTimer) { clearTimeout(__searchTimer); __searchTimer = null; }
   if (__abort) { try { __abort.abort(); } catch {} }
@@ -555,6 +559,7 @@ export function openSectionExplorer(descriptor) {
     `;
 
     document.body.appendChild(__overlay);
+    __backClaim = claimBackButton("section-explorer", () => animatedCloseThen());
     injectGEPerfStyles();
     try { playOpenAnimation(__overlay); } catch {}
 

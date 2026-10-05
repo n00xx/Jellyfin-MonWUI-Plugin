@@ -10,6 +10,7 @@ import {
 import { saveCredentials, saveApiKey, clearCredentials } from "../../Plugins/JMSFusion/runtime/auth.js";
 import { enhanceFormAccessibility } from "./accessibility.js";
 import { findHeaderMountTarget, getHeaderMountWaitSelector } from "./headerCompat.js";
+import { claimBackButton } from "./overlayHistory.js";
 
 const OVERLAY_ID = "jfProfileChooserOverlay";
 const HEADER_BTN_ID = "jfProfileChooserBtn";
@@ -1393,8 +1394,19 @@ export function initProfileChooser(options = {}) {
     } catch {}
   }
 
+  // Android Back closes the chooser (see overlayHistory.js).
+  let backClaim = null;
+  // For closes followed by a reload: the entry is stripped in place, never popped.
+  const giveUpBackClaim = () => {
+    try { backClaim?.drop(); } catch {}
+    backClaim = null;
+  };
+
   const close = () => {
     if (!overlay) return;
+    const claim = backClaim;
+    backClaim = null;
+    try { claim?.release(); } catch {}
     try { clearInterval(overlayPresenceTimer); } catch {}
     overlayPresenceTimer = null;
 
@@ -1802,6 +1814,7 @@ export function initProfileChooser(options = {}) {
       } catch {}
 
       try { localStorage.setItem(LAST_PICK_KEY, resolvedUserId); } catch {}
+      giveUpBackClaim();
       close();
       try { location.reload(); } catch {}
       return true;
@@ -1840,6 +1853,7 @@ export function initProfileChooser(options = {}) {
 
       try { localStorage.setItem(LAST_PICK_KEY, userId); } catch {}
 
+      giveUpBackClaim();
       close();
       try { location.reload(); } catch {}
     } catch (e) {
@@ -1931,6 +1945,7 @@ export function initProfileChooser(options = {}) {
           clearAllRememberedTokensForServer();
           try { localStorage.removeItem(LAST_PICK_KEY); } catch {}
           try { sessionStorage.removeItem(AUTOOPEN_FLAG); } catch {}
+          giveUpBackClaim();
           close();
           try { location.reload(); } catch {}
         })();
@@ -1964,6 +1979,7 @@ export function initProfileChooser(options = {}) {
 
     overlay = buildOverlayDom(L);
     document.body.appendChild(overlay);
+    backClaim = claimBackButton("profile-chooser", () => { backClaim = null; close(); });
     try { overlay.classList.add("busy"); } catch {}
     requestAnimationFrame(() => overlay?.classList.add("open"));
 

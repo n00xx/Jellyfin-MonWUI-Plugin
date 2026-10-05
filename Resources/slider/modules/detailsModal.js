@@ -1,5 +1,6 @@
 import { makeApiRequest, fetchItemDetailsFull, getDetailsUrl, goToDetailsPage, isCurrentUserAdmin, playNow, fetchLocalTrailers, pickBestLocalTrailer, getVideoStreamUrl, updateFavoriteStatus, getEmbyHeaders, getSessionInfo } from "../../Plugins/JMSFusion/runtime/api.js";
 import { withServer } from "./jfUrl.js";
+import { claimBackButton } from "./overlayHistory.js";
 import { SUBTITLE_OFF_INDEX, pickPreferredAudioStream, resolvePreferredTrackSelection } from "./trackSelection.js";
 import { getConfig, getDetailsModalRuntimeConfig } from "./config.js";
 import { getLanguageLabels } from "../language/index.js";
@@ -30,6 +31,8 @@ const _reviewHtmlStore = new Map();
 const MODAL_ID = "jms-details-modal-root";
 let _closeListeners = [];
 let _open = false;
+// Android Back closes the modal (see overlayHistory.js).
+let _backClaim = null;
 let _lastFocus = null;
 let _abort = null;
 let _bgAbort = null;
@@ -2553,6 +2556,9 @@ function forceHideHoverOverlays() {
 export async function closeDetailsModal() {
   if (!_open || _closing) return;
   _closing = true;
+  const backClaim = _backClaim;
+  _backClaim = null;
+  try { backClaim?.release(); } catch {}
 
   cleanupCloseListeners();
   cleanupEventListeners();
@@ -3204,6 +3210,7 @@ export async function openDetailsModal({ itemId, item: preloadedItem = null, det
   wireMiniCardDelegation();
   try { root.style.visibility = "hidden"; root.style.opacity = "0"; } catch {}
   _unbindKeyHandler = wireCloseHandlers(root, closeDetailsModal);
+  _backClaim = claimBackButton("details-modal", () => { closeDetailsModal().catch(() => {}); });
 
   setTimeout(() => { if (_open) focusFirst(root); }, 50);
 
@@ -4249,6 +4256,9 @@ wireMiniCardDelegation();
     addEventListener(guiBtn, "click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
+      // Closing to navigate: give the Back entry up in place, or its pop would race the route.
+      try { _backClaim?.drop(); } catch {}
+      _backClaim = null;
       await closeDetailsModal();
       goToDetailsPage(baseItem.Id);
     });

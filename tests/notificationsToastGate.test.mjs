@@ -106,6 +106,10 @@ async function loadModule({ enableToastNew, freshItems }) {
       `import { ensureSerrIssuesTab, refreshSerrIssues, removeSerrIssuesTab } from "./seerr/issuesPanel.js";`,
       `import { ensureSerrIssuesTab, refreshSerrIssues, removeSerrIssuesTab } from "${noopStub(["ensureSerrIssuesTab", "refreshSerrIssues", "removeSerrIssuesTab"])}";`
     )
+    .replace(
+      `import { claimBackButton } from "./overlayHistory.js";`,
+      `import { claimBackButton } from "${noopStub(["claimBackButton"])}";`
+    )
     + `\n// instance:${Math.random()}\n`;
 
   return import(toDataUrl(doctored));

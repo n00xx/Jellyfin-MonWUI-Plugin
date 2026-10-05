@@ -1,5 +1,5 @@
 import { musicPlayerState } from "../core/state.js";
-import { getAuthToken } from "../core/auth.js";
+import { getAuthToken, mediaBrowserAuthorization } from "../core/auth.js";
 import { playTrack } from "../player/playback.js";
 import { showNotification } from "../ui/notification.js";
 import { saveCurrentPlaylistToJellyfin } from "../core/playlist.js";
@@ -8,6 +8,7 @@ import { getConfig } from "../../config.js";
 import { musicDB } from "../utils/db.js";
 import { updateNextTracks } from "./playerUI.js";
 import { shuffleArray } from "../utils/domUtils.js";
+import { breakBioSentences } from "../utils/bioText.js";
 import { showStatsModal } from "./statsModal.js";
 import { updatePlaylistModal } from "./playlistModal.js";
 import { withServer, withParams, getServerBaseCached } from "../../jfUrl.js";
@@ -69,6 +70,8 @@ function buildArtistModalAuthHeaders(apiKey, userId) {
   };
 
   if (apiKey) {
+    // Jellyfin 12 answers 401 to the legacy token headers alone; they stay for 10.11.
+    headers.Authorization = mediaBrowserAuthorization(apiKey);
     headers["X-Emby-Token"] = apiKey;
     headers["X-MediaBrowser-Token"] = apiKey;
   }
@@ -1571,11 +1574,7 @@ async function loadArtistTracks(artistName, artistId) {
       bioToggle.innerHTML = `<i class="fas fa-chevron-down"></i> ${config.languageLabels.visibleBio}`;
       const artistBio = document.createElement("div");
       artistBio.className = "modal-artist-bio";
-      const bioText = details.Overview;
-      const safeBio = bioText.replace(
-        /(?<!\b(?:Mr|Mrs|Ms|Dr|Prof|Sn|St|vs|No|etc|Jr|Sr|Ltd|Inc|Co|Doç|Av|Yrd|Öğr\.?Gör|Arş\.?Gör|Bkz))\.(\s+)(?=\p{Lu})/gu,
-        ".<br>"
-      );
+      const safeBio = breakBioSentences(details.Overview);
       artistBio.innerHTML = safeBio;
       bioToggle.addEventListener("click", () => {
         bioToggle.classList.toggle("collapsed");
