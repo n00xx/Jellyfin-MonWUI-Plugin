@@ -2066,9 +2066,14 @@ function hasRenderableDirectorRowsUi(cfg = getMainConfig()) {
 
 function hasRenderableStudioHubsUi(cfg = getMainConfig()) {
   if (!shouldRenderStudioHubsUi(cfg)) return true;
-  return hasRenderableDom(
-    "#studio-hubs .studio-hub-card, #studio-hubs .studio-card, #studio-hubs .no-recommendations"
-  );
+  // studioHubs.js renders `.hub-card`, a `.skeleton` until markCardReady. Before v3.7.1.35 this
+  // looked for `.studio-hub-card`, which nothing renders, so recovery ran all five passes on
+  // every home visit (tests/studioHubsRecoverySelector.test.mjs guards the two files).
+  if (hasRenderableDom("#studio-hubs .hub-card:not(.skeleton), #studio-hubs .no-recommendations")) {
+    return true;
+  }
+  // The module settled the row with no card at all (the user sees no studio): done, not missing.
+  return window.__jmsStudioHubsReady === true && !hasRenderableDom("#studio-hubs .hub-card");
 }
 
 function getManagedHomeSectionStatus(cfg = getMainConfig()) {
