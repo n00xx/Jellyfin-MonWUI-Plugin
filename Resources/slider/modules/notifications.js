@@ -9,6 +9,7 @@ import { openDetailsModal } from "./detailsModalLoader.js";
 import { applyHeaderIconButtonMode, findHeaderMountTarget } from "./headerCompat.js";
 import { ensureSerrNotificationsTab, getCachedSerrNotificationCount, markSerrNotificationsSeen, refreshSerrNotifications, renderSerrNotifications, scheduleSerrNotificationsPoll, stopSerrNotificationsPoll } from "./seerr/notificationsPanel.js";
 import { ensureSerrIssuesTab, refreshSerrIssues, removeSerrIssuesTab } from "./seerr/issuesPanel.js";
+import { claimBackButton } from "./overlayHistory.js";
 
 const config = getConfig();
 let __castModulePromise = null;
@@ -162,7 +163,7 @@ function setupNotifHover() {
 
   const openLater = () => {
     clearHoverTimers();
-    __hoverOpenTimer = setTimeout(() => { openModal(); }, HOVER_OPEN_DELAY);
+    __hoverOpenTimer = setTimeout(() => { openModal({ viaHover: true }); }, HOVER_OPEN_DELAY);
   };
   const closeLater = () => {
     clearHoverTimers();
@@ -1066,11 +1067,30 @@ export function forcejfNotifBtnPointerEvents() {
   }
 }
 
-function openModal() {
+// A hover-opened panel (desktop) closes when the pointer leaves, so it does not claim Back:
+// pushing an entry per hover would churn history for nothing.
+let notifBackClaim = null;
+let notifEscapeBound = false;
+
+function claimNotificationsBack() {
+  if (!notifEscapeBound) {
+    notifEscapeBound = true;
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented || !notifState.isModalOpen) return;
+      e.preventDefault();
+      closeModal();
+    });
+  }
+  if (notifBackClaim) return;
+  notifBackClaim = claimBackButton("notifications", () => { notifBackClaim = null; closeModal(); });
+}
+
+function openModal(opts) {
   const liveConfig = getLiveConfig();
   clearHoverTimers();
   const m = document.querySelector("#jfNotifModal");
   if (!m) return;
+  if (opts?.viaHover !== true) claimNotificationsBack();
   m.hidden = false;
   m.removeAttribute("aria-hidden");
   m.style.pointerEvents = "";
@@ -1099,6 +1119,9 @@ function openModal() {
 
  function closeModal() {
    clearHoverTimers();
+  const backClaim = notifBackClaim;
+  notifBackClaim = null;
+  try { backClaim?.release(); } catch {}
   const m = document.querySelector("#jfNotifModal");
   if (m) {
     m.classList.remove("open");
@@ -2485,6 +2508,7 @@ function formatEpisodeHeading({
   function openModalHard() {
     const m = document.querySelector('#jfNotifModal');
     if (!m) return;
+    claimNotificationsBack();
     m.hidden = false;
     m.classList.add('open');
     m.style.pointerEvents = '';

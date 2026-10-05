@@ -11,6 +11,9 @@
 // layer and history.go(-n) closes everything it skipped.
 
 const DEPTH_KEY = "jmsOverlayDepth";
+// Dispatched by playNow(), the cinema pre-roll and the parental PIN gate before they route to
+// the player. Every overlay that closes after it is closing to navigate, so none may pop.
+const PLAYBACK_START_REQUESTED_EVENT = "jms:playback-start-requested";
 // How long to wait for our own history.back() to land before assuming it never will.
 const BACK_SETTLE_MS = 1000;
 
@@ -80,6 +83,7 @@ function listen() {
   if (listening) return;
   listening = true;
   window.addEventListener("popstate", onPopState);
+  window.addEventListener(PLAYBACK_START_REQUESTED_EVENT, () => dropAllBackClaims());
 }
 
 function forget(claim) {

@@ -5,6 +5,7 @@ import { openDetailsModal } from "./detailsModalLoader.js";
 import { faIconHtml } from "./faIcons.js";
 import { resolveSliderAssetHref } from "./assetLinks.js";
 import { formatOfficialRatingLabel } from "./utils.js";
+import { claimBackButton, dropAllBackClaims } from "./overlayHistory.js";
 
 const IS_MOBILE = (navigator.maxTouchPoints > 0) || (window.innerWidth <= 820);
 
@@ -111,7 +112,19 @@ export function registerExplorerCloser(close) {
   return () => { __externalExplorerClosers.delete(close); };
 }
 
+// One Back-button claim per explorer, so Android's Back closes the explorer instead of
+// navigating the page under it.
+const __backClaims = { genre: null, director: null, personal: null, studio: null };
+
+function releaseBackClaim(name) {
+  const claim = __backClaims[name];
+  __backClaims[name] = null;
+  try { claim?.release(); } catch {}
+}
+
 function closeActiveExplorers() {
+  // Playback is about to navigate, so every claim is given up in place rather than popped.
+  dropAllBackClaims();
   for (const close of __externalExplorerClosers) {
     try { close(); } catch {}
   }
@@ -440,6 +453,7 @@ export function openGenreExplorer(genre) {
     </div>
   `;
   document.body.appendChild(__overlay);
+  __backClaims.genre = claimBackButton("genre-explorer", () => animatedCloseThen());
   injectGEPerfStyles();
   try { playOpenAnimation(__overlay); } catch {}
   const grid = __overlay.querySelector('.ge-grid');
@@ -606,6 +620,7 @@ export function openDirectorExplorer(person) {
     </div>
   `;
   document.body.appendChild(__d_overlay);
+  __backClaims.director = claimBackButton("director-explorer", () => d_animatedCloseThen());
   injectGEPerfStyles();
   try { d_playOpenAnimation(__d_overlay); } catch {}
 
@@ -642,6 +657,7 @@ export function openDirectorExplorer(person) {
 
 export function closeDirectorExplorer(skipAnimation = false) {
   if (!__d_overlay) return;
+  releaseBackClaim("director");
   try { document.removeEventListener('keydown', d_escCloser); } catch {}
   try { window.removeEventListener('hashchange', d_hashCloser); } catch {}
   try { __d_io?.disconnect(); } catch {}
@@ -668,6 +684,7 @@ export function closeDirectorExplorer(skipAnimation = false) {
 
 export function closeGenreExplorer(skipAnimation = false) {
   if (!__overlay) return;
+  releaseBackClaim("genre");
   try { document.removeEventListener('keydown', escCloser); } catch {}
   try { window.removeEventListener('hashchange', hashCloser); } catch {}
 
@@ -1119,6 +1136,7 @@ export function openPersonalExplorer() {
     </div>
   `;
   document.body.appendChild(__p_overlay);
+  __backClaims.personal = claimBackButton("personal-explorer", () => p_animatedCloseThen());
   injectGEPerfStyles();
   try { p_playOpenAnimation(__p_overlay); } catch {}
 
@@ -1155,6 +1173,7 @@ export function openPersonalExplorer() {
 
 export function closePersonalExplorer(skipAnimation = false) {
   if (!__p_overlay) return;
+  releaseBackClaim("personal");
   try { document.removeEventListener('keydown', p_escCloser); } catch {}
   try { window.removeEventListener('hashchange', p_hashCloser); } catch {}
   try { __p_io?.disconnect(); } catch {}
@@ -1403,6 +1422,7 @@ export function openStudioExplorer(studio) {
     </div>
   `;
   document.body.appendChild(__s_overlay);
+  __backClaims.studio = claimBackButton("studio-explorer", () => s_animatedCloseThen());
   injectGEPerfStyles();
   try { s_playOpenAnimation(__s_overlay); } catch {}
 
@@ -1440,6 +1460,7 @@ export function openStudioExplorer(studio) {
 
 export function closeStudioExplorer(skipAnimation = false) {
   if (!__s_overlay) return;
+  releaseBackClaim("studio");
   try { document.removeEventListener('keydown', s_escCloser); } catch {}
   try { window.removeEventListener('hashchange', s_hashCloser); } catch {}
   try { __s_io?.disconnect(); } catch {}

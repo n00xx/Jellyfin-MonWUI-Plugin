@@ -29,6 +29,8 @@ const eq = (actual, expected, msg) =>
 
 const modulesDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../Resources/slider/modules");
 const toDataUrl = (src) => "data:text/javascript;charset=utf-8," + encodeURIComponent(src);
+// Overlays claim Android's Back button through overlayHistory.js; these tests do not exercise it.
+const overlayHistoryStubUrl = toDataUrl("export function claimBackButton(){ return { release(){}, drop(){} }; }\nexport function dropAllBackClaims(){}");
 const noopStub = (names) => toDataUrl(names.map((n) => `export function ${n}(){}`).join("\n"));
 
 // --- Minimal fake DOM: enough for createElement/appendChild/innerHTML/classList/querySelector
@@ -137,6 +139,7 @@ async function loadBuscar({ matches = new Map(), items = [] } = {}) {
       `)}";`)
     .replace(`import { registerExplorerCloser } from "./genreExplorer.js";`,
       `import { registerExplorerCloser } from "${noopStub(["registerExplorerCloser"])}";`)
+    .replace(/import \{ [^}]+ \} from "\.\/overlayHistory\.js";/, `import { claimBackButton, dropAllBackClaims } from "${overlayHistoryStubUrl}";`)
     .replace(
       `import { getSerrAccess, searchSerr, searchJellyfinByTmdbIds, createSerrRequest, listSerrRequests } from "./seerr/api.js";`,
       `import { getSerrAccess, searchSerr, searchJellyfinByTmdbIds, createSerrRequest, listSerrRequests } from "${toDataUrl(`

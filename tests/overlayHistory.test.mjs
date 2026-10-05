@@ -224,5 +224,20 @@ console.log("\ndropAllBackClaims (play from inside an overlay) gives up every cl
   expect("Back from the player closes nothing", ex.closes === 0 && dm.closes === 0);
 }
 
+console.log("\nstarting playback gives up every claim before the player navigates");
+{
+  // playNow(), the cinema pre-roll and the parental PIN gate all announce playback with this
+  // event before routing to the player, so no play path has to remember to drop its overlay.
+  reset();
+  const ex = overlay("explorer"), dm = overlay("details");
+  ex.show(); dm.show();
+  for (const fn of listeners.get("jms:playback-start-requested") || []) fn({ detail: { source: "api.playNow" } });
+  dm.hide(); ex.hide();
+  routerPush("#/video");
+  await tick();
+  expect("no back() raced the player route", history.calls.back === 0, `back ${history.calls.back}`);
+  expect("the player route is current", history.entries[history.index].url.endsWith("#/video"));
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

@@ -23,6 +23,8 @@ const genreExplorerSrc = readFileSync(path.join(modulesDir, "genreExplorer.js"),
 const sectionExplorerSrc = readFileSync(path.join(modulesDir, "sectionExplorer.js"), "utf8");
 
 const toDataUrl = (src) => "data:text/javascript;charset=utf-8," + encodeURIComponent(src);
+// Overlays claim Android's Back button through overlayHistory.js; these tests do not exercise it.
+const overlayHistoryStubUrl = toDataUrl("export function claimBackButton(){ return { release(){}, drop(){} }; }\nexport function dropAllBackClaims(){}");
 
 // --- Minimal fake DOM: just enough surface for querySelector/appendChild/classList/
 // getBoundingClientRect/addEventListener to behave like the real thing for these two flows. ---
@@ -168,6 +170,7 @@ console.log("isSentinelStillInRange() — geometry recheck used to keep paging p
     .replace(`import { faIconHtml } from "./faIcons.js";`, `import { faIconHtml } from "${toDataUrl('export function faIconHtml(){ return ""; }')}";`)
     .replace(`import { resolveSliderAssetHref } from "./assetLinks.js";`, `import { resolveSliderAssetHref } from "${noopStub(["resolveSliderAssetHref"])}";`)
     .replace(`import { formatOfficialRatingLabel } from "./utils.js";`, `import { formatOfficialRatingLabel } from "${noopStub(["formatOfficialRatingLabel"])}";`)
+    .replace(/import \{ [^}]+ \} from "\.\/overlayHistory\.js";/, `import { claimBackButton, dropAllBackClaims } from "${overlayHistoryStubUrl}";`)
     + `\n// instance:${Math.random()}\n`;
 
   const mod = await import(toDataUrl(doctored));
@@ -257,6 +260,7 @@ console.log("\nsectionExplorer's loadMore() must not stall at one page when the 
   isSentinelStillInRange,
 } from "${genreExplorerStubUrl}";`
     )
+    .replace(/import \{ [^}]+ \} from "\.\/overlayHistory\.js";/, `import { claimBackButton, dropAllBackClaims } from "${overlayHistoryStubUrl}";`)
     + `\n// instance:${Math.random()}\n`;
 
   const mod = await import(toDataUrl(doctored));

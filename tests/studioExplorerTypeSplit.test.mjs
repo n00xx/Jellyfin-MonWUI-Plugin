@@ -27,6 +27,8 @@ const eq = (actual, expected, msg) => {
 const modulesDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../Resources/slider/modules");
 const genreExplorerSrc = readFileSync(path.join(modulesDir, "genreExplorer.js"), "utf8");
 const toDataUrl = (src) => "data:text/javascript;charset=utf-8," + encodeURIComponent(src);
+// Overlays claim Android's Back button through overlayHistory.js; these tests do not exercise it.
+const overlayHistoryStubUrl = toDataUrl("export function claimBackButton(){ return { release(){}, drop(){} }; }\nexport function dropAllBackClaims(){}");
 
 // --- Minimal fake DOM. Unlike the harness in sectionExplorerPagination.test.mjs, innerHTML
 // keeps the assigned string (the headings are asserted through it) and only materialises the
@@ -203,6 +205,7 @@ async function loadExplorer(library) {
     .replace(`import { faIconHtml } from "./faIcons.js";`, `import { faIconHtml } from "${toDataUrl('export function faIconHtml(){ return ""; }')}";`)
     .replace(`import { resolveSliderAssetHref } from "./assetLinks.js";`, `import { resolveSliderAssetHref } from "${noopStub(["resolveSliderAssetHref"])}";`)
     .replace(`import { formatOfficialRatingLabel } from "./utils.js";`, `import { formatOfficialRatingLabel } from "${toDataUrl('export function formatOfficialRatingLabel(){ return ""; }')}";`)
+    .replace(/import \{ [^}]+ \} from "\.\/overlayHistory\.js";/, `import { claimBackButton, dropAllBackClaims } from "${overlayHistoryStubUrl}";`)
     + `\n// instance:${Math.random()}\n`;
 
   return { mod: await import(toDataUrl(doctored)), requests };

@@ -3,6 +3,7 @@ import { getConfig } from "./config.js";
 import { faIconHtml } from "./faIcons.js";
 import { createRecommendationCard } from "./recentRows.js";
 import { registerExplorerCloser } from "./genreExplorer.js";
+import { claimBackButton } from "./overlayHistory.js";
 import { getSerrAccess, searchSerr, searchJellyfinByTmdbIds, createSerrRequest, listSerrRequests } from "./seerr/api.js";
 import { ensureSerrStyles } from "./seerr/styles.js";
 import {
@@ -39,6 +40,7 @@ const RESULT_LIMIT = 40;
 const STYLE_ID = "monwui-buscar-style";
 
 let __overlay = null;
+let __backClaim = null;
 let __serverId = "";
 let __searchTimer = null;
 let __queryToken = 0;
@@ -693,6 +695,8 @@ function playOpenAnimation(overlayEl) {
 }
 
 function teardown() {
+  try { __backClaim?.release(); } catch {}
+  __backClaim = null;
   if (__searchTimer) { clearTimeout(__searchTimer); __searchTimer = null; }
   document.removeEventListener("keydown", escCloser, false);
   window.removeEventListener("hashchange", hashCloser, false);
@@ -771,6 +775,7 @@ export async function openBuscarPage() {
   `;
 
   document.body.appendChild(__overlay);
+  __backClaim = claimBackButton("buscar", () => closeBuscarPage());
   try { playOpenAnimation(__overlay); } catch {}
 
   bindSearch(__overlay);
