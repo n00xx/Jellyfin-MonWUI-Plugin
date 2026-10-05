@@ -1,5 +1,5 @@
 import { musicPlayerState } from "../core/state.js";
-import { getAuthToken } from "../core/auth.js";
+import { getAuthToken, mediaBrowserAuthorization } from "../core/auth.js";
 import { playTrack } from "../player/playback.js";
 import { showNotification } from "../ui/notification.js";
 import { saveCurrentPlaylistToJellyfin } from "../core/playlist.js";
@@ -70,6 +70,8 @@ function buildArtistModalAuthHeaders(apiKey, userId) {
   };
 
   if (apiKey) {
+    // Jellyfin 12 answers 401 to the legacy token headers alone; they stay for 10.11.
+    headers.Authorization = mediaBrowserAuthorization(apiKey);
     headers["X-Emby-Token"] = apiKey;
     headers["X-MediaBrowser-Token"] = apiKey;
   }

@@ -1129,25 +1129,12 @@ export async function fetchLocalTrailers(itemId, { signal } = {}) {
     (api && typeof api.getCurrentUserId === 'function' && api.getCurrentUserId()) ||
     (typeof getConfig === 'function' && getConfig()?.userId) ||
     null;
-  const token =
-    (api && typeof api.accessToken === 'function' && api.accessToken()) ||
-    (api && api._accessToken) ||
-    localStorage.getItem('embyToken') ||
-    sessionStorage.getItem('embyToken') ||
-    null;
 
   const params = new URLSearchParams();
   if (userId) params.set('userId', userId);
   const url = `/Items/${encodeURIComponent(itemId)}/LocalTrailers${params.toString() ? `?${params}` : ''}`;
-  const headers = { 'Accept': 'application/json' };
-
-  if (token) {
-    headers['X-Emby-Token'] = token;
-  } else if (api && typeof api.getAuthorizationHeader === 'function') {
-    headers.Authorization = api.getAuthorizationHeader();
-  } else if (typeof getConfig === 'function' && getConfig()?.authHeader) {
-    headers.Authorization = getConfig().authHeader;
-  }
+  // Jellyfin 12 ignores X-Emby-Token on its own; buildEmbyHeaders always adds Authorization.
+  const headers = buildEmbyHeaders({ 'Accept': 'application/json' });
 
   try {
     const fullUrl = withServer(url);
