@@ -118,6 +118,10 @@ console.log("\nartist bio sentence breaks match the old lookbehind regex");
     "Newline break.\nNext line. Tab.\tTabbed.",
     "Bkz. Ayrıca. No. 5 is a song. Jr. Sr. Ltd. Done.",
     "Emr. Kaya. Mrs. no. Mr. Écrit.",
+    // An abbreviation glued to the word before it: \b sees the character in front of it.
+    "XMr. Smith. aÖğr.Gör. Kaya. _Dr. Who. 9St. Louis. éDr. Zed.",
+    "Öğr.Gör. Ali. Arş.Gör. Veli. xArş.Gör. Ece. Öğr. Gör. Ayşe.",
+    "😀Dr. Emoji. 😀. Next.",
   ];
   if (breakBioSentences) {
     let same = 0;
@@ -128,8 +132,50 @@ console.log("\nartist bio sentence breaks match the old lookbehind regex");
       else fail(`${JSON.stringify(text)}\n         want ${JSON.stringify(want)}\n         got  ${JSON.stringify(got)}`);
     }
     if (same === corpus.length) ok(`identical on all ${corpus.length} samples`);
+
+    // Seeded fuzz over the pieces that matter: abbreviation fragments, periods, whitespace,
+    // word and non-word characters on either side of \b, upper and lower case, astral chars.
+    const PIECES = ["Mr", "Mrs", "Dr", "St", "Co", "Doç", "Öğr", "Arş", "Gör", "Bkz", "etc", "No",
+      ".", ". ", ".  ", ".\n", " ", "A", "a", "Ö", "ö", "Ç", "x", "_", "9", "é", "😀", "Smith", "çok"];
+    let seed = 0x2f6b1a;
+    const rand = (n) => ((seed = (seed * 1103515245 + 12345) >>> 0) % n);
+    const FUZZ_CASES = 3000;
+    let fuzzDiffs = 0;
+    for (let i = 0; i < FUZZ_CASES; i++) {
+      let text = "";
+      for (let j = rand(24); j >= 0; j--) text += PIECES[rand(PIECES.length)];
+      if (breakBioSentences(text) !== legacy(text)) {
+        if (++fuzzDiffs <= 3) fail(`fuzz ${JSON.stringify(text)}: ${JSON.stringify(breakBioSentences(text))} vs ${JSON.stringify(legacy(text))}`);
+      }
+    }
+    if (!fuzzDiffs) ok(`identical on ${FUZZ_CASES} fuzzed strings`);
     if (breakBioSentences(null) !== "" || breakBioSentences(undefined) !== "") fail("null/undefined should give an empty string");
     else ok("null and undefined give an empty string");
+
+    // The bio comes from server metadata. Checking the abbreviation against the whole text in
+    // front of every break is quadratic, so a long bio would freeze the tab; the old regex was
+    // linear. 30k sentences finish in a few ms when linear and take seconds when quadratic.
+    const MAX_MS = 500;
+    const long = "Ab. Cd ".repeat(30000);
+    const started = performance.now();
+    const out = breakBioSentences(long);
+    const took = performance.now() - started;
+    if (took > MAX_MS) fail(`30k sentences took ${took.toFixed(0)} ms (limit ${MAX_MS}): not linear`);
+    else if (out !== legacy(long)) fail("long input differs from the old regex");
+    else ok(`30k sentences in ${took.toFixed(1)} ms, identical to the old regex`);
+
+    // V8 skips straight to the end for a `$`-anchored pattern, so the timing above cannot see a
+    // whole-prefix check; not every engine does that. Assert the input each check sees is bounded.
+    const MAX_CHECKED = 16;
+    const realTest = RegExp.prototype.test;
+    let longestChecked = 0;
+    RegExp.prototype.test = function (s) {
+      longestChecked = Math.max(longestChecked, String(s).length);
+      return realTest.call(this, s);
+    };
+    try { breakBioSentences(long); } finally { RegExp.prototype.test = realTest; }
+    if (longestChecked > MAX_CHECKED) fail(`an abbreviation check saw ${longestChecked} chars (limit ${MAX_CHECKED})`);
+    else ok(`each abbreviation check sees at most ${longestChecked} chars`);
   }
 }
 
