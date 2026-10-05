@@ -1,0 +1,156 @@
+/*
+ * Phone and tablet fixes that apply to every theme variant.
+ *
+ * Loaded on every page, after nothing in particular: each selector here is deliberately one
+ * step more specific than the rule it adjusts, so the result does not depend on whether this
+ * sheet, a theme sheet or a module's injected <style> arrives last.
+ *
+ * Safe area. Jellyfin's viewport sets viewport-fit=cover, so on a notched iPhone the overlays
+ * below extend under the status bar / Dynamic Island in portrait and under the notch in
+ * landscape, and their close buttons sat where a finger cannot reach (measured with real
+ * insets: tools/mobile-audit.mjs, the "· notch" profiles). Every value here reduces to the
+ * original when env(safe-area-inset-*) is 0, so desktops and phones without a notch render
+ * exactly as before.
+ */
+
+/* Explorers (genre, director, personal, studio, section, Buscar) share this full-screen shell.
+   It is content-box with a 1px border, so the insets come off the size as they go on as padding. */
+.genre-explorer-overlay > .genre-explorer {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  block-size: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  inline-size: calc(100dvw - env(safe-area-inset-left) - env(safe-area-inset-right));
+}
+
+/* Details modal: the card fills the backdrop, whose padding is 0 at every width. */
+#jms-details-modal-root .jmsdm-backdrop {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Profile chooser: keep its own breathing room, and at least the inset. */
+html .jf-profile-overlay {
+  padding:
+    max(clamp(14px, 3vw, 36px), env(safe-area-inset-top))
+    max(clamp(14px, 3vw, 36px), env(safe-area-inset-right))
+    max(clamp(14px, 3vw, 36px), env(safe-area-inset-bottom))
+    max(clamp(14px, 3vw, 36px), env(safe-area-inset-left));
+}
+
+/* Notifications: the panel is anchored to a side; a margin moves it clear of a landscape notch
+   in every theme (they all position it with right/left offsets, or inset:0 on phones). */
+#jfNotifModal .jf-notif-panel {
+  margin-right: env(safe-area-inset-right);
+  margin-left: env(safe-area-inset-left);
+}
+
+/*
+ * Profile button in the header: avatar only on phones. Jellyfin's toolbar wraps, so a 126px
+ * pill that does not fit drops to a second line; the fixed header then grows from 48px to 90px
+ * and covers the top of the page (measured on iPhone SE; on iPhone 15 Pro it depends on how many
+ * header icons are showing). The button keeps its aria-label, so nothing is lost by hiding the
+ * name, and a smaller scale keeps the avatar inside the 48px bar instead of poking above it.
+ */
+@media (max-width: 480px) {
+  html #jfProfileChooserBtn {
+    gap: 0;
+  }
+  html #jfProfileChooserBtn .jf-profile-header-name,
+  html #jfProfileChooserBtn .jf-profile-header-caret {
+    display: none;
+  }
+  html #jfProfileChooserBtn .jf-profile-header-avatar {
+    transform: scale(1.2);
+  }
+}
+
+/* Watchlist: full screen at <=760px, where its backdrop padding is 0. */
+@media (max-width: 760px) {
+  html #monwui-watchlist-modal-root .monwuiwl-backdrop {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+}
+
+/*
+ * Home slider (normalslider, the default variant) on a phone held sideways.
+ *
+ * Every layer of a slide is absolutely positioned by a percentage of the slider's height. In
+ * portrait the slider is ~460px tall and the layers clear each other; on its side it is ~240px,
+ * the percentages shrink while the text does not, and they pile up: the ratings sat on the
+ * synopsis, the title on the ratings, the buttons on the dots (measured on iPhone 15 Pro and
+ * Pixel 7 in landscape). Phones wider than 768px on their side even got the desktop layout,
+ * logo included, over the title.
+ *
+ * Measured on a 240px-tall slider, the layers need ~250px even with the synopsis cut to two
+ * lines, so on a short landscape screen the synopsis goes (the details view still has it), the
+ * ratings join the status line, and the rest is stacked in px from the bottom: info 2, dots
+ * 20-47, buttons 50-90, ratings 96-128, leaving the title (34px down, under the type badge) up
+ * to 78px. Taller screens (tablets, desktops) never match this query.
+ */
+@media (orientation: landscape) and (max-height: 500px) {
+  html[data-css-variant="normalslider"] .monwui-logo-container {
+    display: none;
+  }
+  html[data-css-variant="normalslider"] .monwui-format-container {
+    top: 6px;
+  }
+  html[data-css-variant="normalslider"] .monwui-title-container {
+    top: 34px;
+    left: 2%;
+    width: 72%;
+  }
+  html[data-css-variant="normalslider"] .monwui-title-container > * {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  html[data-css-variant="normalslider"] .monwui-meta-container {
+    top: auto;
+    bottom: 96px;
+    left: 2%;
+    width: 96%;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+  }
+  html[data-css-variant="normalslider"] .monwui-meta-container > .monwui-rating-container {
+    width: auto;
+  }
+  html[data-css-variant="normalslider"] .monwui-plot-container {
+    display: none;
+  }
+  html[data-css-variant="normalslider"] .monwui-main-button-container {
+    bottom: 50px;
+    left: 2%;
+    width: 96%;
+    transform: none;
+  }
+  html[data-css-variant="normalslider"] .monwui-btn-content {
+    height: 34px;
+  }
+  html[data-css-variant="normalslider"] .monwui-dot-navigation-container:not(.dot-poster-mode) {
+    bottom: 20px;
+    left: 2%;
+    width: 96%;
+    height: auto;
+  }
+  html[data-css-variant="normalslider"] .monwui-info-container {
+    bottom: 2px;
+    left: 2%;
+    width: 96%;
+    display: flex;
+  }
+}
+
+/* A phone on its side is wider than 760px but only ~390px tall: the centred desktop card would
+   run under the notch and past the bottom, so it goes full screen there too. */
+@media (orientation: landscape) and (max-height: 500px) {
+  html #monwui-watchlist-modal-root .monwuiwl-backdrop {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  html #monwui-watchlist-modal-root .monwuiwl-card {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+}

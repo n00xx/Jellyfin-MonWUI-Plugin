@@ -2973,6 +2973,8 @@ function whenFirstSlideReadyOrTimeout(cb, timeoutMs = 7000) {
     syncCSS('/slider/src/notificationsBase.css', 'jms-css-notifications-base', true);
     // Always on: the header renders on every page, not just where a feature is enabled.
     syncCSS('/slider/src/headerNav.css', 'jms-css-header-nav', true);
+    // Always on: phone and tablet fixes (safe area, landscape) that span every theme variant.
+    syncCSS('/slider/src/mobile.css', 'jms-css-mobile', true);
     D.getElementById('jms-css-notifications')?.remove();
     syncCSS(getPauseOverlayCssHref(cfg), 'jms-css-pause', pauseFeatureCssEnabled);
     syncCSS('/slider/src/personalRecommendations.css', 'jms-css-recs', recommendationCssEnabled);
