@@ -3806,10 +3806,15 @@ const _onKey = (e) => {
   document.addEventListener("visibilitychange", _onVis, { signal });
 
   const stopLoop = startOverlayLogic();
-  requestIdleCallback?.(() => {
+  // WebKit has no requestIdleCallback, and `requestIdleCallback?.()` would throw there before
+  // destroy() is registered below.
+  const runWhenIdle = typeof window.requestIdleCallback === "function"
+    ? (cb) => window.requestIdleCallback(cb, { timeout: 3000 })
+    : (cb) => setTimeout(cb, 200);
+  runWhenIdle(() => {
     if (!window.__jmsPauseOverlay?.active) return;
     initDescriptorTagsOnce();
-  }, { timeout: 3000 });
+  });
 
   function destroy() {
     try {
