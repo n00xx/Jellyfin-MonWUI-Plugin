@@ -27,7 +27,8 @@ import { withServer } from "./modules/jfUrl.js";
 import { startBackgroundCollectionIndexer, getBackgroundCollectionIndexerStatus } from "./modules/collectionIndexer.js";
 import { initProfileChooser, syncProfileChooserHeaderButtonVisibility } from "./modules/profileChooser.js";
 import { waitForNativeHomeSectionStability, waitForVisibleHomeSections } from "./modules/homeSectionNative.js";
-import { refreshUserContentVerdict, isNoContentHome, USER_CONTENT_VERDICT_EVENT } from "./modules/userContentGate.js";
+import { refreshUserContentVerdict, isNoContentHome, USER_CONTENT_VERDICT_EVENT, NO_CONTENT_ATTR } from "./modules/userContentGate.js";
+import { installNoContentCardZoom, closeNoContentImageViewer } from "./modules/noContentCardZoom.js";
 export { loadCSS } from "./modules/playerStyles.js";
 export { waitForAnyVisible };
 const idle = window.requestIdleCallback || ((cb) => setTimeout(cb, 0));
@@ -2065,9 +2066,14 @@ function hasRenderableDirectorRowsUi(cfg = getMainConfig()) {
 
 function hasRenderableStudioHubsUi(cfg = getMainConfig()) {
   if (!shouldRenderStudioHubsUi(cfg)) return true;
-  return hasRenderableDom(
-    "#studio-hubs .studio-hub-card, #studio-hubs .studio-card, #studio-hubs .no-recommendations"
-  );
+  // studioHubs.js renders `.hub-card`, a `.skeleton` until markCardReady. Before v3.7.1.35 this
+  // looked for `.studio-hub-card`, which nothing renders, so recovery ran all five passes on
+  // every home visit (tests/studioHubsRecoverySelector.test.mjs guards the two files).
+  if (hasRenderableDom("#studio-hubs .hub-card:not(.skeleton), #studio-hubs .no-recommendations")) {
+    return true;
+  }
+  // The module settled the row with no card at all (the user sees no studio): done, not missing.
+  return window.__jmsStudioHubsReady === true && !hasRenderableDom("#studio-hubs .hub-card");
 }
 
 function getManagedHomeSectionStatus(cfg = getMainConfig()) {
@@ -6206,11 +6212,19 @@ function enterNoContentHome(reason = "probe") {
   try { stopSlideTimer?.(); } catch {}
   try { clearCycleArm(); } catch {}
   hideCustomSplash("no-content");
+  // The library card's image carries the renewal QR, too small to scan on a desktop: selecting
+  // the card opens that image full screen. Keyed on the attribute, not isNoContentHome(), whose
+  // negative answer expires after a minute while the user may stay on this screen far longer.
+  installNoContentCardZoom({
+    isActive: () => document.documentElement.getAttribute(NO_CONTENT_ATTR) === "1" && isHomeRouteActive(),
+    getCloseLabel: () => L(["close", "closeButton"], "Close"),
+  });
 }
 
 // A membership renewed while the tab is open: the next verdict flips back to "has content".
 window.addEventListener(USER_CONTENT_VERDICT_EVENT, (event) => {
   if (event?.detail?.hasContent !== true) return;
+  try { closeNoContentImageViewer(); } catch {}
   if (!isHomeRouteActive() || !isHomeVisible()) return;
   homeSectionWarn("noContent:leave", {});
   bootHomeAfterAuthContextReset();

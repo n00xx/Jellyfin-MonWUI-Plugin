@@ -2463,8 +2463,10 @@ function scheduleDirectorInitWhenReady(mountState, { force = false } = {}) {
         seq,
         error: e?.message || String(e),
       });
-      scheduleDirectorRowsRetry(1400, { force: true }, "render-error", { budgeted: true });
+      // Cleanup first: it clears pending retries, so before v3.7.1.35 it cancelled the retry
+      // scheduled just above it and a render error was never retried.
       try { cleanupDirectorRows({ resetRetryState: false }); } catch {}
+      scheduleDirectorRowsRetry(1400, { force: true }, "render-error", { budgeted: true });
       return false;
     }
   }, {

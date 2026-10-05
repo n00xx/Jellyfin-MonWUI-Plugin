@@ -150,7 +150,9 @@ function isDeniedKey(key) {
   const lowered = normalized.toLowerCase();
   if (!normalized) return true;
   if (DENY_KEYS.has(normalized)) return true;
-  if (DENY_PREFIXES.some(prefix => lowered.startsWith(prefix))) return true;
+  // Lowercase both sides: "studioHub_" and "jms:focusedUserDataSync:" never matched a lowered
+  // key before v3.7.1.35. UserSettingsController compares OrdinalIgnoreCase.
+  if (DENY_PREFIXES.some(prefix => lowered.startsWith(prefix.toLowerCase()))) return true;
   if (/token|credential|session/i.test(normalized)) return true;
   if (INSTANCE_ID_IN_KEY.test(normalized)) return true;
   return false;
